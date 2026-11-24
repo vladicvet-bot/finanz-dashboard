@@ -33,6 +33,8 @@
     kategorieProzent: 30, minSparquote: 10, grosseAusgabe: 500, umbuchungen: "Umbuchung",
     regeln: window.Analyse.STANDARD_REGELN,
     clerSaldo: "", clerEinzahlung: "",
+    ignorierePosten: "Pikett",               // Planwerte, die anderswo tatsächlich erfasst werden
+    ruecklagen: "Ferien, Weiterbildung",     // «Sparen & Investieren», das später ausgegeben wird
   };
   const umbuchungsListe = () => String(zustand.einst.umbuchungen || "").split(",");
 
@@ -54,6 +56,8 @@
     buchungen: [],         // echte Buchungen (ohne Fixkosten)
     fixkosten: [],         // Posten aus dem Blatt «Fixkosten»
     budgetsKonto: {},      // Budget pro Topf (Konto) aus dem Blatt «Übersicht»
+    kennzahlen: null,      // Kennzahlen aus dem Blatt «Übersicht»
+    vermoegen: [],         // Stände aus dem Blatt «Vermögen»
     kontoFilter: "alle",   // "alle" oder ein Kontoname
     monat: null,           // ausgewählter Monat "JJJJ-MM"
     zeitraum: "12",        // "12" oder "alle"
@@ -91,6 +95,8 @@
     let geladen = 0, fehler = false;
     let neueFixkosten = beispiel || zustand.quelle?.beispiel ? [] : zustand.fixkosten;
     let neueBudgets = beispiel || zustand.quelle?.beispiel ? {} : zustand.budgetsKonto;
+    let neueKennzahlen = beispiel || zustand.quelle?.beispiel ? null : zustand.kennzahlen;
+    let neuesVermoegen = beispiel || zustand.quelle?.beispiel ? [] : zustand.vermoegen;
 
     for (const { name, buffer } of dateien) {
       try {
@@ -103,7 +109,10 @@
           alle = alle.concat(e.buchungen);
           if (e.fixkosten.length) neueFixkosten = e.fixkosten;
           if (Object.keys(e.budgets).length) neueBudgets = e.budgets;
+          if (e.kennzahlen && e.kennzahlen.werte.length) neueKennzahlen = e.kennzahlen;
+          if (e.vermoegen.length) neuesVermoegen = e.vermoegen;
           t = `✓ ${name}: ${e.anzahlAusgaben} Ausgaben, ${e.anzahlEinnahmen} Einnahmen, ${e.fixkosten.length} Fixkosten-Posten`;
+          if (e.vermoegen.length) t += `, ${new Set(e.vermoegen.map(v => v.konto)).size} Konten/Anlagen im Vermögen`;
           if (e.von) t += ` · ${Format.datum(e.von)} – ${Format.datum(e.bis)}`;
           if (e.uebersprungen) t += ` · ${e.uebersprungen} Zeilen ohne Datum/Betrag übersprungen`;
           zeilenText.push(t);
@@ -130,6 +139,8 @@
     zustand.quelle = { geladenAm: new Date().toISOString(), beispiel };
     zustand.fixkosten = neueFixkosten;
     zustand.budgetsKonto = neueBudgets;
+    zustand.kennzahlen = neueKennzahlen;
+    zustand.vermoegen = neuesVermoegen;
     zustand.kontoFilter = "alle";
     setzeBuchungen(alle, true);
 
@@ -149,8 +160,16 @@
     const daten = zustand.buchungen.map(({ umbuchung, ...rest }) => rest);
     return speicherSchreiben(SPEICHER_DATEN, {
       version: 3, geladenAm: zustand.quelle.geladenAm, buchungen: daten, fixkosten: zustand.fixkosten,
-      budgetsKonto: zustand.budgetsKonto,
+      budgetsKonto: zustand.budgetsKonto, kennzahlen: zustand.kennzahlen, vermoegen: zustand.vermoegen,
     });
+  }
+
+  function fixOptionen() {
+    return {
+      ignorieren: zustand.einst.ignorierePosten,
+      ruecklagen: zustand.einst.ruecklagen,
+      nichtMitzaehlen: zustand.einst.umbuchungen,
+    };
   }
 
   function setzeBuchungen(buchungen, neuerMonat) {
@@ -167,17 +186,24 @@
     const monate = [];
     for (let m = von; monate.length < 600; m = A.naechsterMonat(m)) { monate.push(m); if (m === bis) break; }
 
-    const fix = A.fixBuchungen(zustand.fixkosten, monate);
+    // Konto-Filter: «alle» = Haushalts-Sicht, ein Konto = Topf-Sicht wie im Sheet
+    zustand.alleKonten = [...new Set(buchungen.map(b => b.konto).concat(zustand.fixkosten.map(f => f.konto)))].sort();
+    if (zustand.kontoFilter !== "alle" && !zustand.alleKonten.includes(zustand.kontoFilter)) zustand.kontoFilter = "alle";
+    const topfSicht = zustand.kontoFilter !== "alle";
+
+    const fix = A.fixBuchungen(zustand.fixkosten, monate, { ...fixOptionen(), topfSicht });
     let alle = buchungen.concat(fix);
     A.zuordnen(alle, zustand.einst.regeln);
-
-    // Konto-Filter
-    zustand.alleKonten = [...new Set(alle.map(b => b.konto))].sort();
-    if (zustand.kontoFilter !== "alle" && !zustand.alleKonten.includes(zustand.kontoFilter)) zustand.kontoFilter = "alle";
-    if (zustand.kontoFilter !== "alle") alle = alle.filter(b => b.konto === zustand.kontoFilter);
+    if (topfSicht) alle = alle.filter(b => b.konto === zustand.kontoFilter);
     if (!alle.length) alle = buchungen.concat(fix);
+    if (!alle.length) {
+      // Nur Vermögen geladen: einen leeren Monat anlegen, damit die Seite funktioniert
+      alle = [{ datum: `${heute}-01`, beschreibung: "", kategorie: "Nicht zugeordnet", kategorieDatei: "", zahlungsmittelDatei: "",
+        konto: "Ohne Konto", einnahme: 0, ausgabe: 0, saldo: null, fix: true, nr: -1 }];
+    }
 
-    zustand.daten = A.berechne(alle, umbuchungsListe());
+    // In der Topf-Sicht zählt (wie im Sheet) auch «nicht mitzählen» als Abgang
+    zustand.daten = A.berechne(alle, topfSicht ? ["Umbuchung"] : umbuchungsListe());
     if (neuerMonat || !zustand.daten.proMonat[zustand.monat]) {
       zustand.monat = letzterVollerMonat(zustand.daten.monate);
     }
@@ -221,11 +247,14 @@
     statusZeile();
     monatsauswahl();
     kontoFilterAnzeigen();
-    kennzahlen();
+    vermoegenKarten();
+    kacheln();
+    fluss();
+    gruppen();
     warnungsliste();
     budgetKarte();
     fixkostenKarten();
-    kategorien();
+    sheetKennzahlen();
     zahlungsmittel();
     buchungsTabelle();
     einstellungenAnzeigen();
@@ -279,66 +308,6 @@
     return vergleich(`${diff > 0 ? "+" : "−"}${Math.abs(Math.round(diff * 100))} %`, richtung);
   }
 
-  function kennzahlen() {
-    const d = zustand.daten;
-    const pm = d.proMonat[zustand.monat];
-    const i = d.monate.indexOf(zustand.monat);
-    const vor = i > 0 ? d.proMonat[d.monate[i - 1]] : null;
-    const vm = d.monate.slice(Math.max(0, i - 3), i).map(m => d.proMonat[m]);
-    const schnittAus = vm.length ? vm.reduce((s, x) => s + x.ausgaben, 0) / vm.length : null;
-
-    const fixTeil = {
-      titel: "Davon Fixkosten",
-      wert: Format.chf(pm.fixAusgaben),
-      vergleich: pm.ausgaben ? `${Math.round(pm.fixAusgaben / pm.ausgaben * 100)} % der Ausgaben · Variabel ${Format.chf(pm.ausgaben - pm.fixAusgaben)}` : "",
-    };
-    const kacheln = zustand.kontoFilter !== "alle" ? [
-      {
-        titel: `Ausgaben ${zustand.kontoFilter}`, wert: Format.chf(pm.ausgaben),
-        vergleich: schnittAus != null ? `${veraenderung(pm.ausgaben, schnittAus, false) || "–"} vs. Ø 3 Monate` : "",
-      },
-      fixTeil,
-      {
-        titel: "Variable Ausgaben", wert: Format.chf(pm.ausgaben - pm.fixAusgaben),
-        vergleich: `${pm.buchungen.filter(b => !b.fix && b.ausgabe).length} Zahlungen`,
-      },
-      {
-        titel: "Hinweis", wert: "Nur Ausgaben",
-        vergleich: "Einnahmen und Sparquote siehst du bei «Alle Konten».",
-      },
-    ] : [
-      {
-        titel: "Einnahmen", wert: Format.chf(pm.einnahmen),
-        vergleich: vor ? `${veraenderung(pm.einnahmen, vor.einnahmen, true) || "–"} vs. Vormonat` : "",
-      },
-      {
-        titel: "Ausgaben", wert: Format.chf(pm.ausgaben),
-        vergleich: schnittAus != null ? `${veraenderung(pm.ausgaben, schnittAus, false) || "–"} vs. Ø 3 Monate` : "",
-      },
-      {
-        titel: "Gespart",
-        wert: Format.chf(pm.gespart),
-        vergleich: pm.sparquote != null
-          ? `Sparquote ${vergleich(Format.prozent(pm.sparquote), pm.sparquote * 100 < zustand.einst.minSparquote ? "schlechter" : "besser")}`
-          : "keine Einnahmen",
-      },
-      d.hatKontostand ? {
-        titel: "Kontostand Monatsende",
-        wert: pm.saldoEnde != null ? Format.chf(pm.saldoEnde) : "–",
-        vergleich: vor && vor.saldoEnde != null && pm.saldoEnde != null
-          ? `${vergleich(`${pm.saldoEnde >= vor.saldoEnde ? "+" : "−"}${Format.chf(Math.abs(pm.saldoEnde - vor.saldoEnde))}`, pm.saldoEnde >= vor.saldoEnde ? "besser" : "schlechter")} vs. Vormonat`
-          : "",
-      } : fixTeil,
-    ];
-
-    $("kennzahlen").innerHTML = kacheln.map(k => `
-      <div class="kennzahl">
-        <div class="kennzahl-titel">${k.titel}</div>
-        <div class="kennzahl-wert">${k.wert}</div>
-        <div class="kennzahl-vergleich">${k.vergleich}</div>
-      </div>`).join("");
-  }
-
   // ---------- Warnungen ----------
 
   const ICONS = {
@@ -350,15 +319,30 @@
   const STUFEN_TEXT = { kritisch: "Achtung", warnung: "Warnung", info: "Info", gut: "OK" };
 
   function warnungsliste() {
-    const liste = window.Analyse.warnungen(zustand.daten, zustand.monat,
-      { ...zustand.einst, nurAusgaben: zustand.kontoFilter !== "alle" });
-    const reihenfolge = { kritisch: 0, warnung: 1, info: 2, gut: 3 };
-    liste.sort((a, b) => reihenfolge[a.stufe] - reihenfolge[b.stufe]);
+    const alle = window.Analyse.warnungen(zustand.daten, zustand.monat,
+      { ...zustand.einst, topfSicht: zustand.kontoFilter !== "alle", topf: zustand.kontoFilter });
+    const reihenfolge = { kritisch: 0, warnung: 1, gut: 2, info: 3 };
+    alle.sort((a, b) => reihenfolge[a.stufe] - reihenfolge[b.stufe]);
+    // höchstens 3 Hinweise zeigen – die wichtigsten zuerst
+    const wichtig = alle.filter(w => w.stufe !== "info");
+    const liste = (wichtig.length ? wichtig : alle).slice(0, zustand.alleHinweise ? 99 : 3);
+    const mehr = wichtig.length - liste.length;
+    naechsteRechnungen();
     $("warnungen").innerHTML = liste.map(w => `
       <li class="warnung ${w.stufe}">
         ${ICONS[w.stufe]}
         <div><strong><span class="unsichtbar">${STUFEN_TEXT[w.stufe]}: </span>${esc(w.titel)}</strong><span>${esc(w.text)}</span></div>
-      </li>`).join("");
+      </li>`).join("") + (mehr > 0 ? `<li class="mehr"><button type="button" class="link-knopf" id="mehr-hinweise">+ ${mehr} weitere ${mehr === 1 ? "Hinweis" : "Hinweise"} anzeigen</button></li>` : "");
+  }
+
+  function naechsteRechnungen() {
+    const el = $("naechste-rechnungen");
+    if (!zustand.fixkosten.length) { el.innerHTML = ""; return; }
+    const heute = new Date().toISOString().slice(0, 7);
+    const ab = zustand.monat < heute ? heute : zustand.monat;
+    const f = window.Analyse.faelligkeiten(zustand.fixkosten, ab, 2, fixOptionen()).filter(x => x.posten.length);
+    el.innerHTML = f.length ? `<h3 class="unter-titel">Nächste Rechnungen</h3><ul class="kurzliste">${f.flatMap(x =>
+      x.posten.slice(0, 3).map(p => `<li><span>${Format.monatKurz(x.monat)} · ${esc(p.posten)}</span><span>${Format.chf(p.betrag)}</span></li>`)).join("")}</ul>` : "";
   }
 
   // ---------- Balkenlisten ----------
@@ -380,33 +364,277 @@
     for (const f of el.querySelectorAll("[data-breite]")) f.style.width = `${f.dataset.breite}%`;
   }
 
-  function kategorien() {
+  // ---------- Icons (eigene, einfache Linien-Icons) ----------
+
+  const GRUPPEN_ICON = {
+    "Wohnen": '<path d="M4 11.5 12 5l8 6.5"/><path d="M6.5 10v9h11v-9"/><path d="M10 19v-5h4v5"/>',
+    "Alltag": '<path d="M4 9.5h16l-1.6 9.5H5.6L4 9.5Z"/><path d="m8.5 9.5 2.5-5M15.5 9.5 13 4.5"/>',
+    "Mobilität": '<path d="M5 16.5v-4l2-5h10l2 5v4Z"/><circle cx="8" cy="16.5" r="1.6"/><circle cx="16" cy="16.5" r="1.6"/>',
+    "Gesundheit": '<path d="M12 19s-7-4.4-7-9.5A3.8 3.8 0 0 1 12 7.6a3.8 3.8 0 0 1 7 1.9C19 14.6 12 19 12 19Z"/>',
+    "Freizeit": '<circle cx="12" cy="12" r="3.5"/><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6 18 18M6 18l1.4-1.4M16.6 7.4 18 6"/>',
+    "Kinder": '<circle cx="12" cy="12" r="7.5"/><path d="M9.2 13.8a3.6 3.6 0 0 0 5.6 0"/><path d="M9.5 10h.01M14.5 10h.01"/>',
+    "Abos & Telefon": '<rect x="7.5" y="3.5" width="9" height="17" rx="2"/><path d="M11 17.5h2"/>',
+    "Steuern & Versicherungen": '<path d="M12 3.5 5.5 6v5.5c0 4 2.8 7.3 6.5 8.9 3.7-1.6 6.5-4.9 6.5-8.9V6Z"/>',
+    "Andere": '<circle cx="6.5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="17.5" cy="12" r="1.2"/>',
+    "Sparen": '<path d="m4 16 5.5-5.5 4 4L20 8"/><path d="M15 8h5v5"/>',
+    "ein": '<path d="M7 17 17 7"/><path d="M9 7h8v8"/>',
+    "aus": '<path d="M7 7l10 10"/><path d="M17 9v8H9"/>',
+    "spar": '<path d="m4 16 5.5-5.5 4 4L20 8"/><path d="M15 8h5v5"/>',
+  };
+  const icon = name => `<svg aria-hidden="true" viewBox="0 0 24 24">${GRUPPEN_ICON[name] || GRUPPEN_ICON.Andere}</svg>`;
+  // feste Farbe pro Hauptgruppe (Reihenfolge der Palette, nie zyklisch)
+  const GRUPPEN_FARBE = {
+    "Wohnen": "s1", "Alltag": "s2", "Mobilität": "s3", "Freizeit": "s4", "Gesundheit": "s5",
+    "Kinder": "s6", "Abos & Telefon": "s7", "Steuern & Versicherungen": "s8", "Andere": "grau-fest",
+  };
+
+  // ---------- Trend-Kacheln ----------
+
+  function kacheln() {
     const d = zustand.daten;
-    const el = $("kategorien");
-    if (zustand.katModus === "monat") {
-      const pm = d.proMonat[zustand.monat];
-      const eintraege = Object.entries(pm.nachKategorie).sort((a, b) => b[1] - a[1]);
-      $("kat-fuss").textContent = pm.umbuchungRaus || pm.umbuchungRein
-        ? `Nicht mitgezählt: Umbuchungen (${Format.chf(pm.umbuchungRaus + pm.umbuchungRein)})` : "";
-      const nurFix = new Set(Object.keys(pm.nachKategorie).filter(k => !(k in pm.variabelNachKategorie)));
-      balkenliste(el, eintraege, pm.ausgaben, (kat, betrag) => {
-        if (nurFix.has(kat)) return " · Fixkosten";
-        const schnitt = window.Analyse.durchschnittVorher(d, zustand.monat, kat);
-        if (schnitt == null) return "";
-        if (schnitt === 0) return " · neu diesen Monat";
-        const diff = betrag / schnitt - 1;
-        const hoch = diff * 100 > zustand.einst.kategorieProzent && betrag - schnitt >= 50;
-        const txt = `${diff >= 0 ? "+" : "−"}${Math.abs(Math.round(diff * 100))} % vs. Ø`;
-        return ` · ${hoch ? `<span class="hoch">${txt}</span>` : txt}`;
+    const pm = d.proMonat[zustand.monat];
+    const i = d.monate.indexOf(zustand.monat);
+    const verlauf = d.monate.slice(Math.max(0, i - 5), i + 1);
+    const vor = i > 0 ? d.proMonat[d.monate[i - 1]] : null;
+    const gespart = pm.einnahmen - pm.ausgaben;
+    const delta = (jetzt, vorher, mehrGut) => {
+      if (!vor || !vorher) return "";
+      const diff = (jetzt - vorher) / Math.abs(vorher);
+      if (Math.abs(diff) < 0.005) return "gleich wie Vormonat";
+      const gut = (diff > 0) === mehrGut;
+      return `<span class="${gut ? "besser" : "schlechter"}">${diff > 0 ? "▲" : "▼"} ${Math.abs(Math.round(diff * 100))} %</span> vs. Vormonat`;
+    };
+    $("k-ein").textContent = Format.chf(pm.einnahmen);
+    $("k-ein-unter").innerHTML = delta(pm.einnahmen, vor?.einnahmen, true);
+    $("k-aus").textContent = Format.chf(pm.ausgaben);
+    $("k-aus-unter").innerHTML = (pm.rueckerstattungen ? `nach ${Format.chf(pm.rueckerstattungen)} Rückerstattung · ` : "") + delta(pm.ausgaben, vor?.ausgaben, false);
+    $("k-spar").textContent = Format.chf(gespart);
+    $("k-spar").classList.toggle("negativ", gespart < 0);
+    $("k-spar-unter").innerHTML = pm.einnahmen > 0
+      ? `<span class="${gespart / pm.einnahmen * 100 >= zustand.einst.minSparquote ? "besser" : "schlechter"}">${Format.prozent(gespart / pm.einnahmen)}</span> Sparquote`
+      : "keine Einnahmen";
+    for (const k of document.querySelectorAll(".icon-kreis[data-icon]")) k.innerHTML = icon(k.dataset.icon);
+
+    if (!window.Chart) return;
+    const mini = (id, werte, farbName) => {
+      const c = farbe(farbName);
+      neu(id, {
+        type: "line",
+        data: { labels: verlauf.map(Format.monatKurz), datasets: [{
+          data: werte, borderColor: c, backgroundColor: transparent(c, 0.15), fill: "origin",
+          borderWidth: 2, tension: 0.4, pointRadius: werte.map((_, j) => j === werte.length - 1 ? 3 : 0), pointBackgroundColor: c,
+        }] },
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: false,
+          plugins: { legend: { display: false }, tooltip: { enabled: false } },
+          scales: { x: { display: false }, y: { display: false, beginAtZero: false } },
+          layout: { padding: { top: 4, bottom: 2, left: 2, right: 4 } },
+        },
       });
-    } else {
-      const bereich = bereichMonate();
-      const z = window.Analyse.zeitraum(d, bereich);
-      $("kat-fuss").textContent = "";
-      const eintraege = Object.entries(z.nachKategorie)
-        .map(([k, v]) => [k, v / bereich.length]).sort((a, b) => b[1] - a[1]);
-      balkenliste(el, eintraege, z.ausgaben / bereich.length, () => " · pro Monat");
+    };
+    mini("chart-k-ein", verlauf.map(m => d.proMonat[m].einnahmen), "s1");
+    mini("chart-k-aus", verlauf.map(m => d.proMonat[m].ausgaben), "s2");
+    mini("chart-k-spar", verlauf.map(m => d.proMonat[m].einnahmen - d.proMonat[m].ausgaben), "gut");
+  }
+
+  // ---------- Geldfluss (eigenes SVG-Flussdiagramm) ----------
+
+  function fluss() {
+    const d = zustand.daten;
+    const pm = d.proMonat[zustand.monat];
+    $("fluss-monat").textContent = Format.monat(zustand.monat);
+    const A = window.Analyse;
+    const gruppenListe = A.nachHauptgruppe(pm);
+
+    // Rechte Seite: Hauptgruppen (brutto), Sparen, Übrig
+    const rechts = gruppenListe.map(g => ({ name: g.name, wert: g.summe, farbe: GRUPPEN_FARBE[g.name] || "grau-fest" }));
+    if (pm.sparen > 0) rechts.push({ name: "Sparen & Investieren", wert: pm.sparen, farbe: "gut", icon: "Sparen" });
+    const brutto = rechts.reduce((s, r) => s + r.wert, 0);
+
+    // Linke Seite: Einkommen, Rückerstattungen, ggf. Fehlbetrag
+    const links = [];
+    const einkommenNachArt = {};
+    for (const b of pm.buchungen) {
+      if (!b.einnahme || b.umbuchung || /rückerstatt|rueckerstatt|erstattung|retoure/i.test(b.kategorie)) continue;
+      const name = b.fix ? b.beschreibung : b.kategorie;
+      einkommenNachArt[name] = (einkommenNachArt[name] || 0) + b.einnahme;
     }
+    for (const [name, wert] of Object.entries(einkommenNachArt).sort((a, b) => b[1] - a[1])) links.push({ name, wert });
+    if (pm.rueckerstattungen > 0) links.push({ name: "Rückerstattungen", wert: pm.rueckerstattungen });
+    const linksSumme = links.reduce((s, l) => s + l.wert, 0);
+    if (linksSumme > brutto + 0.5) rechts.push({ name: "Übrig", wert: linksSumme - brutto, farbe: "uebrig" });
+    else if (brutto > linksSumme + 0.5) links.push({ name: "Aus Erspartem", wert: brutto - linksSumme, minus: true });
+    const total = Math.max(linksSumme, brutto);
+    if (total <= 0) { $("fluss").innerHTML = '<p class="leer">Keine Daten für diesen Monat.</p>'; return; }
+
+    // Geometrie
+    const breite = $("fluss").clientWidth || 600;
+    const schmal = breite < 520;
+    const W = breite, linksB = schmal ? 92 : 150, knotenB = 12;
+    const rechtsX = schmal ? W - 150 : W - 260;
+    const gap = 6, minH = 16;   // Mindesthöhe, damit kleine Posten lesbar bleiben
+    const hoeheProCHF = 300 / total;
+    const ein = pm.einnahmen || 1;
+    const prozent = w => `${Math.round(w / ein * 100)} %`;
+
+    let y = 4; const linksPos = links.map(l => { const h = Math.max(minH, l.wert * hoeheProCHF); const p = { ...l, y, h }; y += h + gap; return p; });
+    const linksEnde = y;
+    y = 4; const rechtsPos = rechts.map(r => { const h = Math.max(minH, r.wert * hoeheProCHF); const p = { ...r, y, h }; y += h + gap; return p; });
+    const H = Math.max(linksEnde, y) + 4;
+
+    // Bänder: der linke Block (alle Quellen zusammen) verteilt sich der Reihe nach auf die rechten Knoten
+    const lx = linksB, rx = rechtsX;
+    const linksOben = linksPos[0].y;
+    let quelleY = linksOben;
+    const linksGesamtH = linksPos[linksPos.length - 1].y + linksPos[linksPos.length - 1].h - linksOben;
+    const rechtsWert = rechtsPos.reduce((s, r) => s + r.wert, 0);
+    const baender = rechtsPos.map(r => {
+      const h0 = r.wert / rechtsWert * linksGesamtH;   // Anteil am linken Block
+      const y0 = quelleY; quelleY += h0;
+      const mx = (lx + knotenB + rx) / 2;
+      return `<path class="band f-${r.farbe}" d="M${lx + knotenB},${y0} C${mx},${y0} ${mx},${r.y} ${rx},${r.y} L${rx},${r.y + r.h} C${mx},${r.y + r.h} ${mx},${y0 + h0} ${lx + knotenB},${y0 + h0} Z"><title>${esc(r.name)}: ${Format.chf(r.wert)}</title></path>`;
+    }).join("");
+
+    const linksSvg = linksPos.map(l => `
+      <rect class="knoten ${l.minus ? "f-schlecht" : "f-ein"}" x="${lx}" y="${l.y}" width="${knotenB}" height="${l.h}" rx="3"/>
+      <text class="fluss-name" x="${lx - 8}" y="${l.y + l.h / 2 - (l.h > 30 ? 7 : 0)}" text-anchor="end" dominant-baseline="middle">${esc(kuerze(l.name, schmal ? 11 : 18))}</text>
+      ${l.h > 30 ? `<text class="fluss-wert" x="${lx - 8}" y="${l.y + l.h / 2 + 9}" text-anchor="end" dominant-baseline="middle">${Format.zahl(l.wert)}</text>` : ""}`).join("");
+
+    const rechtsSvg = rechtsPos.map(r => `
+      <rect class="knoten f-${r.farbe}" x="${rx}" y="${r.y}" width="${knotenB}" height="${r.h}" rx="3"/>
+      ${r.h > 30
+        ? `<text class="fluss-name" x="${rx + knotenB + 8}" y="${r.y + r.h / 2 - 7}" dominant-baseline="middle">${esc(kuerze(r.name, schmal ? 14 : 26))}</text>
+           <text class="fluss-wert" x="${rx + knotenB + 8}" y="${r.y + r.h / 2 + 9}" dominant-baseline="middle">${Format.zahl(r.wert)} · ${prozent(r.wert)}</text>`
+        : `<text class="fluss-name" x="${rx + knotenB + 8}" y="${r.y + r.h / 2}" dominant-baseline="middle">${esc(kuerze(r.name, schmal ? 11 : 26))} <tspan class="fluss-wert">${prozent(r.wert)}</tspan></text>`}`).join("");
+
+    $("fluss").innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="xMinYMin meet">${baender}${linksSvg}${rechtsSvg}</svg>`;
+  }
+
+  function kuerze(t, n) { t = String(t); return t.length > n ? `${t.slice(0, n - 1)}…` : t; }
+
+  // ---------- Ausgaben nach Bereich (2 Ebenen) ----------
+
+  function gruppen() {
+    const d = zustand.daten;
+    const pm = d.proMonat[zustand.monat];
+    const liste = window.Analyse.nachHauptgruppe(pm);
+    const brutto = liste.reduce((s, g) => s + g.summe, 0);
+    const ein = pm.einnahmen;
+    $("gruppen-total").textContent = `Total ${Format.chf(brutto)}`;
+    const max = liste.length ? liste[0].summe : 1;
+    $("gruppen").innerHTML = liste.map(g => `
+      <li>
+        <details>
+          <summary>
+            <span class="icon-kreis f-bg-${GRUPPEN_FARBE[g.name] || "grau-fest"}">${icon(g.name)}</span>
+            <span class="g-text">
+              <span class="g-zeile"><span class="name">${esc(g.name)}</span><span class="betrag">${Format.chf(g.summe)}</span></span>
+              <span class="spur" aria-hidden="true"><span class="fuellung f-${GRUPPEN_FARBE[g.name] || "grau-fest"}" data-breite="${Math.max(1, g.summe / max * 100).toFixed(1)}"></span></span>
+              <span class="detail">${ein ? `${Math.round(g.summe / ein * 100)} % deines Einkommens` : ""}</span>
+            </span>
+          </summary>
+          <ul class="unterliste">${g.kategorien.map(k => `<li><span>${esc(k.name)}${k.fix ? ' <em class="marke">fix</em>' : ""}</span><span>${Format.chf(k.betrag)}</span></li>`).join("")}</ul>
+        </details>
+      </li>`).join("") || '<li class="leer">Keine Ausgaben in diesem Monat.</li>';
+    for (const f of $("gruppen").querySelectorAll("[data-breite]")) f.style.width = `${f.dataset.breite}%`;
+  }
+
+  // ---------- Vermögen ----------
+
+  function vermoegenKarten() {
+    const A = window.Analyse;
+    const V = A.vermoegenBerechnen(zustand.vermoegen || []);
+    const leer = !V.monate.length;
+    $("vm-leer").hidden = !leer;
+    $("vm-diagramm").hidden = leer;
+    $("karte-verteilung").hidden = leer;
+    if (leer) {
+      $("vm-total").textContent = "–";
+      $("vm-delta").textContent = "";
+      $("vm-stand").textContent = "";
+      $("karte-invest").hidden = true;
+      if (diagramme["chart-vermoegen"]) { diagramme["chart-vermoegen"].destroy(); delete diagramme["chart-vermoegen"]; }
+      return;
+    }
+    // Monat: der gewählte, sonst der letzte davor mit Vermögensdaten
+    const passend = V.monate.filter(m => m <= zustand.monat);
+    const m = passend.length ? passend[passend.length - 1] : V.monate[0];
+    const vm = V.proMonat[m];
+    const i = V.monate.indexOf(m);
+    const vor = i > 0 ? V.proMonat[V.monate[i - 1]] : null;
+
+    $("vm-total").textContent = Format.chf(vm.netto);
+    let delta = "";
+    if (vor) {
+      const diff = vm.netto - vor.netto;
+      delta = `<span class="${diff >= 0 ? "besser" : "schlechter"}">${diff >= 0 ? "▲ +" : "▼ −"}${Format.chf(Math.abs(diff))}</span> seit Vormonat`;
+      const pm = zustand.daten.proMonat[m];
+      if (pm && pm.einnahmen) delta += ` · laut Budget gespart ${Format.chf(pm.einnahmen - pm.ausgaben + pm.sparen)}`;
+    }
+    $("vm-delta").innerHTML = delta;
+    $("vm-stand").textContent = vm.stichtag ? `Stand ${Format.datum(vm.stichtag)}` : `Stand ${Format.monat(m)}`;
+
+    // Verteilung nach Art
+    const gruppen = A.ARTEN.map(art => [art, vm.konten.filter(k => k.art === art).sort((a, b) => Math.abs(b.stand) - Math.abs(a.stand))])
+      .filter(([, k]) => k.length);
+    const maxAbs = Math.max(1, ...vm.konten.map(k => Math.abs(k.stand)));
+    $("verteilung-stand").textContent = vm.stichtag ? Format.datum(vm.stichtag) : "";
+    $("verteilung").innerHTML = gruppen.map(([art, konten]) => {
+      const summe = konten.reduce((s, k) => s + k.stand, 0);
+      return `<div class="gruppe ${art === "Schulden" ? "schulden" : ""} ${art === "Kinder" ? "kinder" : ""}">
+        <div class="gruppe-kopf"><strong>${esc(art === "Konto" ? "Konten" : art === "Investment" ? "Investments" : art)}</strong><span>${Format.chf(summe)}</span></div>
+        <ul class="balken">${konten.map(k => `<li>
+          <span class="name">${esc(k.konto)}</span><span class="betrag">${Format.chf(k.stand)}</span>
+          <div class="spur" aria-hidden="true"><div class="fuellung" data-breite="${Math.max(1, Math.abs(k.stand) / maxAbs * 100).toFixed(1)}"></div></div>
+        </li>`).join("")}</ul>
+        ${art === "Kinder" ? '<p class="hinweis">Gehört den Kindern – zählt nicht zum Nettovermögen.</p>' : ""}
+      </div>`;
+    }).join("");
+    for (const f of $("verteilung").querySelectorAll("[data-breite]")) f.style.width = `${f.dataset.breite}%`;
+
+    // Investments & Vorsorge: eingezahlt vs. Wert
+    const inv = vm.konten.filter(k => (k.art === "Investment" || k.art === "Vorsorge") && k.eingezahlt);
+    $("karte-invest").hidden = !inv.length;
+    if (inv.length) {
+      const maxI = Math.max(...inv.map(k => Math.max(k.stand, k.eingezahlt)), 1);
+      $("invest").innerHTML = inv.map(k => {
+        const gewinn = k.stand - k.eingezahlt;
+        const prozent = k.eingezahlt ? gewinn / k.eingezahlt : 0;
+        return `<li>
+          <div class="invest-kopf"><span class="name">${esc(k.konto)}</span>
+            <span class="${gewinn >= 0 ? "besser" : "schlechter"}">${gewinn >= 0 ? "+" : "−"}${Format.chf(Math.abs(gewinn))} (${gewinn >= 0 ? "+" : "−"}${Format.prozent(Math.abs(prozent))})</span></div>
+          <div class="spur duenn"><div class="fuellung grau" data-breite="${(k.eingezahlt / maxI * 100).toFixed(1)}"></div></div>
+          <div class="spur duenn"><div class="fuellung" data-breite="${(Math.max(0, k.stand) / maxI * 100).toFixed(1)}"></div></div>
+          <div class="detail">eingezahlt ${Format.chf(k.eingezahlt)} · heute ${Format.chf(k.stand)}</div>
+        </li>`;
+      }).join("");
+      for (const f of $("invest").querySelectorAll("[data-breite]")) f.style.width = `${f.dataset.breite}%`;
+    }
+
+    // Verlauf Nettovermögen (Balken, letzte 12 Monate bis zum gewählten)
+    const bis = V.monate.indexOf(m);
+    const bereich = V.monate.slice(Math.max(0, bis - 11), bis + 1);
+    if (!window.Chart) return;
+    const s1 = farbe("s1");
+    const opt = grundOptionen();
+    opt.scales.y.ticks.callback = v => Format.zahl(v);
+    opt.scales.y.beginAtZero = false;
+    opt.plugins.tooltip.callbacks = {
+      title: items => Format.monat(bereich[items[0].dataIndex]),
+      label: c => ` Nettovermögen: ${Format.chf(c.raw)}`,
+    };
+    neu("chart-vermoegen", {
+      type: "bar",
+      data: {
+        labels: bereich.map(Format.monatKurz),
+        datasets: [{
+          label: "Nettovermögen", data: bereich.map(x => V.proMonat[x].netto),
+          backgroundColor: bereich.map((x, j) => j === bereich.length - 1 ? s1 : transparent(s1, 0.4)),
+          borderRadius: 4, borderSkipped: "bottom", maxBarThickness: 36,
+        }],
+      },
+      options: opt,
+    });
   }
 
   function zahlungsmittel() {
@@ -422,9 +650,10 @@
   // ---------- Konto-Filter ----------
 
   function kontoFilterAnzeigen() {
+    // In der neuen Übersicht nicht mehr angezeigt (die Töpfe stehen in der Budget-Karte)
     const konten = zustand.alleKonten || [];
     const el = $("konto-filter");
-    el.hidden = konten.length < 2;
+    el.hidden = true;
     if (el.hidden) return;
     el.innerHTML = ["alle", ...konten].map(k =>
       `<button type="button" data-konto="${esc(k)}" aria-pressed="${k === zustand.kontoFilter}">${k === "alle" ? "Alle Konten" : esc(k)}</button>`).join("");
@@ -466,30 +695,29 @@
     for (const id of ["karte-fix", "karte-faellig", "karte-cler"]) $(id).hidden = !zustand.fixkosten.length;
     if (!zustand.fixkosten.length) return;
 
-    // 1) Fixkosten pro Monat nach Gruppe (ohne Einnahmen/Überweisungen)
-    const nachGruppe = {};
-    let einnahmen = 0, sparen = 0;
-    for (const f of fk) {
-      const g = String(f.gruppe).toLowerCase();
-      if (/^einnahme/.test(g)) { einnahmen += f.proMonat; continue; }
-      if (/überweisung|ueberweisung|umbuchung/.test(g)) continue;
-      if (/sparen|invest/.test(g)) { sparen += f.proMonat; continue; }
-      nachGruppe[f.gruppe] = (nachGruppe[f.gruppe] || 0) + f.proMonat;
-    }
-    const eintraege = Object.entries(nachGruppe).sort((a, b) => b[1] - a[1]);
+    // 1) Fixkosten pro Monat nach Gruppe
+    const opt = { ...fixOptionen(), topfSicht: zustand.kontoFilter !== "alle" };
+    const ue = A.fixUebersicht(fk, opt);
+    const eintraege = Object.entries(ue.nachGruppe).sort((a, b) => b[1] - a[1]);
     const total = eintraege.reduce((s, e) => s + e[1], 0);
     balkenliste($("fix-gruppen"), eintraege, total || 1, null);
     for (const d of $("fix-gruppen").querySelectorAll(".detail")) d.textContent = d.textContent.replace("der Ausgaben", "der Fixkosten");
     $("fix-summe").textContent = `${Format.chf(total)} pro Monat`;
     const teile = [];
-    if (einnahmen) teile.push(`Feste Einnahmen ${Format.chf(einnahmen)}`);
-    if (sparen) teile.push(`Sparen & Investieren ${Format.chf(sparen)}`);
-    $("fix-fuss").textContent = teile.length ? `${teile.join(" · ")} pro Monat. Jahresbeträge sind auf 12 Monate verteilt.` : "Jahresbeträge sind auf 12 Monate verteilt.";
+    if (ue.einnahmen) teile.push(`Feste Einnahmen ${Format.chf(ue.einnahmen)}`);
+    if (ue.sparen) teile.push(`Sparen & Investieren ${Format.chf(ue.sparen)}`);
+    if (ue.ruecklagen) teile.push(`Rücklagen ${Format.chf(ue.ruecklagen)}`);
+    if (ue.transfer) teile.push(`Überweisungen ${Format.chf(ue.transfer)}`);
+    if (ue.intern && !opt.topfSicht) teile.push(`interne Einzahlungen ${Format.chf(ue.intern)} (nicht doppelt gezählt)`);
+    if (ue.ignoriert) teile.push(`ignorierte Planwerte ${Format.chf(ue.ignoriert)}`);
+    $("fix-fuss").textContent = `${teile.length ? `Ausserdem pro Monat: ${teile.join(" · ")}. ` : ""}Jahresbeträge sind auf 12 Monate verteilt.`;
 
     // 2) Fälligkeiten der nächsten 3 Monate (ab dem gewählten Monat)
     const heute = new Date().toISOString().slice(0, 7);
     const ab = zustand.monat < heute ? heute : zustand.monat;
-    const faellig = A.faelligkeiten(fk, ab, 3);
+    const faellig = A.faelligkeiten(fk, ab, 3, opt);
+    $("faellig-unbekannt").textContent = ue.ohneFaellig
+      ? `${ue.ohneFaellig} ${ue.ohneFaellig === 1 ? "Posten hat" : "Posten haben"} noch keine Fälligkeit und ${ue.ohneFaellig === 1 ? "fehlt" : "fehlen"} hier.` : "";
     $("faellig").innerHTML = faellig.map(f => `
       <li>
         <div class="faellig-kopf"><strong>${Format.monat(f.monat)}</strong><span>${f.summe ? Format.chf(f.summe) : "–"}</span></div>
@@ -518,6 +746,21 @@
       html += `<p class="hinweis">Trag unter «Einstellungen und Daten» den aktuellen Kontostand des Cler-Kontos ein. Dann rechnet das Dashboard aus, ob der Topf für die nächsten 12 Monate reicht.</p>`;
     }
     box.innerHTML = html;
+  }
+
+  // ---------- Kennzahlen aus dem Sheet ----------
+
+  function sheetKennzahlen() {
+    const k = zustand.kennzahlen;
+    $("karte-sheet").hidden = !k || !k.werte.length;
+    if ($("karte-sheet").hidden) return;
+    $("sheet-monat").textContent = k.monat ? `Stand Export: ${Format.monat(k.monat.slice(0, 7))}` : "";
+    $("sheet-werte").innerHTML = k.werte.map(w => {
+      const prozent = /quote|%|anteil/i.test(w.label) && Math.abs(w.wert) <= 1.5;
+      const anzahl = /tage|anzahl|monate|stück/i.test(w.label);
+      const wert = prozent ? Format.prozent(w.wert) : anzahl ? Format.zahl(w.wert) : Format.chf(w.wert);
+      return `<li><span>${esc(w.label)}</span><span class="betrag">${wert}</span></li>`;
+    }).join("");
   }
 
   // ---------- Tabelle ----------
@@ -703,6 +946,8 @@
     $("e-spar").value = zustand.einst.minSparquote;
     $("e-gross").value = zustand.einst.grosseAusgabe;
     $("e-umb").value = zustand.einst.umbuchungen;
+    $("e-ignorieren").value = zustand.einst.ignorierePosten ?? "";
+    $("e-ruecklagen").value = zustand.einst.ruecklagen ?? "";
     $("e-cler-saldo").value = zustand.einst.clerSaldo ?? "";
     $("e-cler-ein").value = zustand.einst.clerEinzahlung ?? "";
     $("e-cler-ein").placeholder = zustand.fixkosten.length
@@ -755,6 +1000,8 @@
       grosseAusgabe: lese("e-gross", STANDARD_EINST.grosseAusgabe, 50, 100000),
       umbuchungen: $("e-umb").value.split(",").map(s => s.trim()).filter(Boolean).join(", "),
       regeln: $("e-regeln").value,
+      ignorierePosten: $("e-ignorieren").value.trim(),
+      ruecklagen: $("e-ruecklagen").value.trim(),
       clerSaldo: $("e-cler-saldo").value.trim(),
       clerEinzahlung: $("e-cler-ein").value.trim(),
     };
@@ -767,6 +1014,7 @@
   function waehleMonat(m) {
     if (!zustand.daten.proMonat[m]) return;
     zustand.monat = m;
+    zustand.alleHinweise = false;
     alles();
   }
 
@@ -827,13 +1075,21 @@
     setzeBuchungen(zustand.buchungen, false);
   });
 
+  $("warnungen").addEventListener("click", e => {
+    if (e.target.id !== "mehr-hinweise") return;
+    zustand.alleHinweise = true;
+    warnungsliste();
+  });
+
+  $("details").addEventListener("toggle", () => { if ($("details").open && zustand.daten) zeichneDiagramme(); });
+
   $("suche").addEventListener("input", buchungsTabelle);
-  for (const id of ["e-kat", "e-spar", "e-gross", "e-umb", "e-regeln", "e-cler-saldo", "e-cler-ein"]) $(id).addEventListener("change", einstellungAendern);
+  for (const id of ["e-kat", "e-spar", "e-gross", "e-umb", "e-regeln", "e-ignorieren", "e-ruecklagen", "e-cler-saldo", "e-cler-ein"]) $(id).addEventListener("change", einstellungAendern);
 
   $("loeschen").addEventListener("click", () => {
     if (!confirm("Gespeicherte Finanzdaten von diesem Gerät löschen?\n\nDeine Excel-Datei selbst bleibt unverändert.")) return;
     speicherLoeschen(SPEICHER_DATEN);
-    zustand.daten = null; zustand.quelle = null; zustand.buchungen = []; zustand.fixkosten = []; zustand.budgetsKonto = {};
+    zustand.daten = null; zustand.quelle = null; zustand.buchungen = []; zustand.fixkosten = []; zustand.budgetsKonto = {}; zustand.kennzahlen = null; zustand.vermoegen = [];
     for (const id of Object.keys(diagramme)) { diagramme[id].destroy(); delete diagramme[id]; }
     $("dashboard").hidden = true;
     $("start").hidden = false;
@@ -862,19 +1118,27 @@
     einstellungAendern();
   });
 
+  let flussTimer;
+  window.addEventListener("resize", () => {
+    clearTimeout(flussTimer);
+    flussTimer = setTimeout(() => { if (zustand.daten) fluss(); }, 150);
+  });
+
   // Hell/Dunkel gewechselt -> Diagrammfarben neu setzen
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-    if (zustand.daten) zeichneDiagramme();
+    if (zustand.daten) { zeichneDiagramme(); vermoegenKarten(); kacheln(); }
   });
 
   // ---------- Start ----------
 
   const gespeichert = speicherLesen(SPEICHER_DATEN);
   if (gespeichert && Array.isArray(gespeichert.buchungen) &&
-      (gespeichert.buchungen.length || (gespeichert.fixkosten || []).length)) {
+      (gespeichert.buchungen.length || (gespeichert.fixkosten || []).length || (gespeichert.vermoegen || []).length)) {
     zustand.quelle = { beispiel: false, geladenAm: gespeichert.geladenAm || gespeichert.quelle?.geladenAm };
     zustand.fixkosten = gespeichert.fixkosten || [];
     zustand.budgetsKonto = gespeichert.budgetsKonto || {};
+    zustand.kennzahlen = gespeichert.kennzahlen || null;
+    zustand.vermoegen = gespeichert.vermoegen || [];
     setzeBuchungen(gespeichert.buchungen, true);
   }
 

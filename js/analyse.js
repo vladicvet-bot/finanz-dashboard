@@ -265,7 +265,7 @@
       proMonat[m] = {
         monat: m, einnahmen: 0, ausgaben: 0, nachKategorie: {}, einnahmenNachKategorie: {},
         nachZahlungsmittel: {}, buchungen: [], saldoEnde: null, umbuchungRaus: 0, umbuchungRein: 0,
-        sparen: 0, fixAusgaben: 0, variabelNachKategorie: {}, variabelNachKonto: {},
+        sparen: 0, fixAusgaben: 0, variabelNachKategorie: {}, variabelNachKonto: {}, rueckerstattungen: 0,
       };
       if (m === letzter || monate.length > 600) break;
     }
@@ -279,6 +279,12 @@
         if (b.fix) continue; // feste Daueraufträge zwischen eigenen Konten: nicht extra melden
         pm.umbuchungRaus += b.ausgabe;
         pm.umbuchungRein += b.einnahme;
+        continue;
+      }
+      // Rückerstattungen sind kein Einkommen: sie verringern die Ausgaben
+      if (b.einnahme && /rückerstatt|rueckerstatt|erstattung|retoure/i.test(b.kategorie)) {
+        pm.rueckerstattungen += b.einnahme;
+        pm.ausgaben -= b.einnahme;
         continue;
       }
       pm.einnahmen += b.einnahme;
@@ -370,15 +376,13 @@
         text: "Dieser Monat ist noch nicht vorbei. Vergleiche sind darum vorläufig." });
     }
 
-    if (einst.nurAusgaben) {
-      // Einzelnes Konto gewählt: Einnahmen/Sparquote sind hier nicht aussagekräftig
-    } else if (pm.einnahmen === 0 && pm.ausgaben > 0) {
+    if (pm.einnahmen === 0 && pm.ausgaben > 0) {
       liste.push({ stufe: "kritisch", titel: "Keine Einnahmen",
         text: `In diesem Monat sind keine Einnahmen erfasst, aber ${fmt.chf(pm.ausgaben)} Ausgaben.` });
     } else if (pm.ausgaben > pm.einnahmen) {
       liste.push({ stufe: "kritisch", titel: "Mehr ausgegeben als eingenommen",
         text: `Die Ausgaben liegen ${fmt.chf(pm.ausgaben - pm.einnahmen)} über den Einnahmen.` });
-    } else if (pm.sparquote != null && pm.sparquote * 100 < einst.minSparquote) {
+    } else if (!einst.topfSicht && pm.sparquote != null && pm.sparquote * 100 < einst.minSparquote) {
       liste.push({ stufe: "warnung", titel: "Tiefe Sparquote",
         text: `Sparquote ${fmt.prozent(pm.sparquote)} – unter deinem Ziel von ${einst.minSparquote} %.` });
     }
@@ -416,7 +420,7 @@
     // Budget pro Topf (Konto) überschritten (nur variable Ausgaben)
     const budgets = einst.budgetsKonto || {};
     for (const [topf, budget] of Object.entries(budgets)) {
-      if (!(topf in pm.variabelNachKonto) && einst.nurAusgaben) continue;
+      if (einst.topfSicht && einst.topf !== topf) continue;
       const ist = pm.variabelNachKonto[topf] || 0;
       if (ist > budget) {
         liste.push({ stufe: "warnung", titel: `Budget ${topf} überschritten`,
@@ -445,12 +449,14 @@
   // =====================================================================
 
   const SHEET_SPALTEN = {
-    datum: ["datum", "date"],
+    datum: ["datum", "date", "stichtag"],
     was: ["wasgeschäft", "wasquelle", "was", "geschäft", "quelle", "beschreibung", "text"],
     kategorie: ["kategorie", "art", "category"],
     betrag: ["betrag", "betragin", "amount"],
-    konto: ["konto"],
+    konto: ["konto", "kontoanlage", "anlage"],
     zahlmittel: ["zahlmittel", "zahlungsmittel"],
+    stand: ["stand", "kontostand", "wert"],
+    eingezahlt: ["eingezahlt", "einbezahlt", "einzahlungen"],
     notiz: ["notiz", "bemerkung"],
     posten: ["posten", "bezeichnung"],
     gruppe: ["gruppe"],
@@ -558,20 +564,54 @@
       if (!posten || !betrag) continue;
       const rhythmus = s.rhythmus !== undefined ? text(z[s.rhythmus]) : "monatlich";
       const haeufigkeit = proJahr(rhythmus);
-      const pm = s.promonat !== undefined ? zuBetrag(z[s.promonat]) : null;
       liste.push({
         posten,
         gruppe: (s.gruppe !== undefined && text(z[s.gruppe])) || "Fixkosten",
         rhythmus,
         haeufigkeit,
         betrag,
-        proMonat: pm != null && pm !== 0 ? Math.abs(pm) : betrag * haeufigkeit / 12,
+        // «Pro Monat» wird immer neu berechnet (Betrag ÷ Teiler), weil ein
+        // Export statt Werten auch Formeln enthalten kann.
+        proMonat: Math.round(betrag * haeufigkeit / 12 * 100) / 100,
         konto: (s.konto !== undefined && text(z[s.konto])) || "Ohne Konto",
         ueberCler: s.uebercler !== undefined ? istJa(z[s.uebercler]) : false,
         faellig: leseFaellig(s.faellig !== undefined ? z[s.faellig] : "", haeufigkeit),
       });
     }
+    markiereInterneEinzahlungen(liste);
     return liste;
+  }
+
+  /*
+   * Eine Überweisung von Konto A (z.B. Privat) erscheint bei Konto B
+   * (z.B. Gem. Konto) nochmals als «Einnahme». Gleicher Betrag + Rhythmus
+   * -> diese Einnahme ist eine interne Einzahlung. Jede Überweisung wird
+   * höchstens einer Einnahme zugeordnet.
+   */
+  function markiereInterneEinzahlungen(liste) {
+    const frei = liste.filter(f => fixArt(f.gruppe) === "einnahme");
+    for (const u of liste.filter(f => fixArt(f.gruppe) === "transfer")) {
+      const i = frei.findIndex(e => e.konto !== u.konto && Math.abs(e.betrag - u.betrag) < 0.01 && e.haeufigkeit === u.haeufigkeit);
+      if (i >= 0) { frei[i].interneEinzahlung = true; frei.splice(i, 1); }
+    }
+  }
+
+  const enthaeltWort = (text, liste) => {
+    const t = String(text || "").toLowerCase();
+    return liste.some(w => w && t.includes(w));
+  };
+  const wortListe = text => String(text || "").split(",").map(w => w.trim().toLowerCase()).filter(Boolean);
+
+  /*
+   * Art eines Fixkosten-Postens unter Berücksichtigung der Einstellungen:
+   * "einnahme" | "intern" | "ausgabe" | "sparen" | "ruecklage" | "transfer" | "ignorieren"
+   */
+  function fixArtGenau(f, opt = {}) {
+    if (enthaeltWort(f.posten, wortListe(opt.ignorieren))) return "ignorieren";
+    const art = fixArt(f.gruppe);
+    if (art === "einnahme" && f.interneEinzahlung) return "intern";
+    if (art === "sparen" && enthaeltWort(f.posten, wortListe(opt.ruecklagen))) return "ruecklage";
+    return art;
   }
 
   // Budget pro Topf (= Konto) aus der Tabelle «Budget variabel» im Blatt Übersicht
@@ -590,23 +630,128 @@
     return budgets;
   }
 
+  // ---------- Hauptgruppen (Ebene 1) für Kategorien (Ebene 2) ----------
+
+  const HAUPTGRUPPEN = [
+    ["Kinder", /kind/],
+    ["Wohnen", /wohn|miete|haushalt|nebenkosten|strom|energie|möbel/],
+    ["Alltag", /lebensmittel|auswärts|restaurant|kaffee|kleid|coiffeur|alltag|drogerie|körperpflege/],
+    ["Mobilität", /auto|mobil|parkplatz|öv|verkehr|velo|benzin|tank/],
+    ["Gesundheit", /gesund|kranken|apotheke|arzt|zahn/],
+    ["Freizeit", /freizeit|geschenk|ferien|verein|hobby|sport|reise|ausgang/],
+    ["Abos & Telefon", /telefon|abo|internet|handy|streaming/],
+    ["Steuern & Versicherungen", /steuer|versicher|gebühr|rechnung|bank/],
+  ];
+  const HAUPTGRUPPEN_NAMEN = HAUPTGRUPPEN.map(h => h[0]).concat("Andere");
+
+  function hauptgruppe(kategorie) {
+    const k = String(kategorie || "").toLowerCase();
+    const treffer = HAUPTGRUPPEN.find(([, re]) => re.test(k));
+    return treffer ? treffer[0] : "Andere";
+  }
+
+  // Ausgaben eines Monats nach Hauptgruppe, mit den Einzelkategorien darunter
+  function nachHauptgruppe(pm) {
+    const gruppen = {};
+    const fixKat = new Set(pm.buchungen.filter(b => b.fix && b.ausgabe && !b.umbuchung).map(b => b.kategorie));
+    for (const [kat, betrag] of Object.entries(pm.nachKategorie)) {
+      if (betrag <= 0) continue;
+      const g = gruppen[hauptgruppe(kat)] ||= { name: hauptgruppe(kat), summe: 0, kategorien: [] };
+      g.summe += betrag;
+      g.kategorien.push({ name: kat, betrag, fix: fixKat.has(kat) && !(kat in pm.variabelNachKategorie) });
+    }
+    for (const g of Object.values(gruppen)) g.kategorien.sort((a, b) => b.betrag - a.betrag);
+    return Object.values(gruppen).sort((a, b) => b.summe - a.summe);
+  }
+
+  // ---------- Blatt «Vermögen»: Stände pro Konto/Anlage und Stichtag ----------
+
+  const ARTEN = ["Konto", "Rücklage", "Vorsorge", "Investment", "Schulden", "Kinder", "Andere"];
+  function normArt(a) {
+    const t = String(a || "").toLowerCase();
+    if (/kind/.test(t)) return "Kinder";
+    if (/schuld|kredit|hypo/.test(t)) return "Schulden";
+    if (/vorsorge|3a|säule|pensions/.test(t)) return "Vorsorge";
+    if (/invest|depot|aktie|fonds|etf|krypto|crypto/.test(t)) return "Investment";
+    if (/rücklage|ruecklage|reserve/.test(t)) return "Rücklage";
+    if (/konto|bank|spar/.test(t)) return "Konto";
+    return "Andere";
+  }
+
+  function leseVermoegen(blatt) {
+    const kopf = blatt && findeKopf(blatt.zeilen, ["datum", "konto", "stand"]);
+    if (!kopf) return [];
+    const s = kopf.s;
+    const liste = [];
+    for (let i = kopf.zeile + 1; i < blatt.zeilen.length; i++) {
+      const z = blatt.zeilen[i] || [];
+      const datum = zuDatum(z[s.datum]);
+      const konto = text(z[s.konto]);
+      const stand = zuBetrag(z[s.stand]);
+      if (!datum || !konto || stand == null) continue;
+      const art = normArt(s.kategorie !== undefined ? z[s.kategorie] : "");
+      const e = s.eingezahlt !== undefined ? zuBetrag(z[s.eingezahlt]) : null;
+      liste.push({
+        datum, konto, art,
+        stand: art === "Schulden" ? -Math.abs(stand) : stand,
+        eingezahlt: e != null ? Math.abs(e) : null,
+      });
+    }
+    return liste;
+  }
+
+  // Pro Monat: letzter bekannter Stand jedes Kontos (fehlende Monate übernehmen den Vormonat)
+  function vermoegenBerechnen(eintraege) {
+    if (!eintraege.length) return { monate: [], proMonat: {} };
+    const sortiert = [...eintraege].sort((a, b) => a.datum < b.datum ? -1 : a.datum > b.datum ? 1 : 0);
+    const erster = monatVon(sortiert[0].datum);
+    const letzter = monatVon(sortiert[sortiert.length - 1].datum);
+    const monate = [];
+    for (let m = erster; monate.length < 600; m = naechsterMonat(m)) { monate.push(m); if (m === letzter) break; }
+    const stand = new Map();
+    const proMonat = {};
+    let i = 0;
+    for (const m of monate) {
+      let datum = null;
+      while (i < sortiert.length && monatVon(sortiert[i].datum) === m) {
+        stand.set(sortiert[i].konto, sortiert[i]);
+        datum = sortiert[i].datum;
+        i++;
+      }
+      const konten = [...stand.values()];
+      const nachArt = {};
+      for (const k of konten) nachArt[k.art] = (nachArt[k.art] || 0) + k.stand;
+      proMonat[m] = {
+        monat: m, stichtag: datum, konten,
+        netto: konten.filter(k => k.art !== "Kinder").reduce((s, k) => s + k.stand, 0),
+        kinder: nachArt.Kinder || 0,
+        nachArt,
+      };
+    }
+    return { monate, proMonat };
+  }
+
   /*
    * Liest eine Datei (alle Blätter). Erkennt das Sheet-Format; sonst wird
    * das erste Blatt mit erkennbaren Spalten als Haushaltsbuch/Bank-Export gelesen.
    */
   function ausArbeitsmappe(blaetter, dateiname = "") {
     const ausgabenBlatt = blattSuchen(blaetter, "ausgaben");
-    if (ausgabenBlatt) {
+    const vermoegenBlatt = blattSuchen(blaetter, "vermögen") || blattSuchen(blaetter, "vermoegen");
+    if (ausgabenBlatt || vermoegenBlatt) {
+      const vermoegen = leseVermoegen(vermoegenBlatt);
       const aus = leseSheetBuchungen(ausgabenBlatt, "aus");
       const ein = leseSheetBuchungen(blattSuchen(blaetter, "einnahmen"), "ein");
       const fixkosten = leseFixkosten(blattSuchen(blaetter, "fixkosten"));
-      const budgets = leseBudgetsAusUebersicht(blattSuchen(blaetter, "übersicht") || blattSuchen(blaetter, "uebersicht"));
+      const uebersicht = blattSuchen(blaetter, "übersicht") || blattSuchen(blaetter, "uebersicht");
+      const budgets = leseBudgetsAusUebersicht(uebersicht);
+      const kennzahlen = leseKennzahlen(uebersicht);
       const buchungen = aus.buchungen.concat(ein.buchungen)
         .sort((a, b) => a.datum < b.datum ? -1 : a.datum > b.datum ? 1 : 0);
-      if (!buchungen.length && !fixkosten.length) throw new Error("KEINE_BUCHUNGEN");
+      if (!buchungen.length && !fixkosten.length && !vermoegen.length) throw new Error("KEINE_BUCHUNGEN");
       buchungen.forEach((b, i) => { b.nr = i; });
       return {
-        typ: "sheet", buchungen, fixkosten, budgets,
+        typ: "sheet", buchungen, fixkosten, budgets, kennzahlen, vermoegen,
         anzahlAusgaben: aus.buchungen.length, anzahlEinnahmen: ein.buchungen.length,
         uebersprungen: aus.uebersprungen + ein.uebersprungen,
         von: buchungen.length ? buchungen[0].datum : null,
@@ -622,25 +767,36 @@
     throw letzterFehler;
   }
 
-  // Fixkosten als (geglättete) Monatsbuchungen, damit sie in Monatssummen,
-  // Sparquote und Kategorien mitzählen.
-  function fixBuchungen(fixkosten, monate) {
+  /*
+   * Fixkosten als (geglättete) Monatsbuchungen, damit sie in Monatssummen,
+   * Sparquote und Kategorien mitzählen.
+   *
+   * Haushalts-Sicht (alle Konten): Überweisungen und interne Einzahlungen
+   *   heben sich auf und zählen nicht; Sparen zählt als gespart;
+   *   Rücklagen zählen weder als Ausgabe noch als gespart.
+   * Topf-Sicht (ein Konto): wie im Sheet – alles, was das Konto verlässt,
+   *   zählt unter «Fix & Sparen», auch Überweisungen und Rücklagen.
+   */
+  function fixBuchungen(fixkosten, monate, opt = {}) {
     const liste = [];
-    for (const m of monate) {
-      for (const f of fixkosten) {
-        const art = fixArt(f.gruppe);
+    for (const f of fixkosten) {
+      const art = fixArtGenau(f, opt);
+      if (art === "ignorieren") continue;
+      if (!opt.topfSicht && (art === "intern" || art === "transfer" || art === "ruecklage")) continue;
+      const istEinnahme = art === "einnahme" || art === "intern";
+      for (const m of monate) {
         liste.push({
           datum: `${m}-01`,
           beschreibung: f.posten,
-          kategorieDatei: art === "einnahme" ? "Feste Einnahmen" : f.gruppe,
+          kategorieDatei: istEinnahme ? "Feste Einnahmen" : f.gruppe,
           zahlungsmittelDatei: "Fixkosten",
           konto: f.konto,
-          einnahme: art === "einnahme" ? f.proMonat : 0,
-          ausgabe: art === "einnahme" ? 0 : f.proMonat,
+          einnahme: istEinnahme ? f.proMonat : 0,
+          ausgabe: istEinnahme ? 0 : f.proMonat,
           saldo: null,
           fix: true,
-          transfer: art === "transfer" || art === "sparen",
-          sparen: art === "sparen",
+          transfer: !opt.topfSicht && art === "sparen",
+          sparen: !opt.topfSicht && art === "sparen",
           nr: -1,
         });
       }
@@ -648,8 +804,60 @@
     return liste;
   }
 
+  // Zusammenfassung der Fixkosten pro Monat (für die Fixkosten-Karte)
+  function fixUebersicht(fixkosten, opt = {}) {
+    const r = { nachGruppe: {}, einnahmen: 0, intern: 0, sparen: 0, ruecklagen: 0, transfer: 0, ignoriert: 0, ohneFaellig: 0 };
+    const nicht = wortListe(opt.nichtMitzaehlen);
+    for (const f of fixkosten) {
+      const art = fixArtGenau(f, opt);
+      if (art === "ignorieren") { r.ignoriert += f.proMonat; continue; }
+      if (art === "einnahme") { r.einnahmen += f.proMonat; continue; }
+      if (art === "intern") { r.intern += f.proMonat; continue; }
+      if (art === "sparen") { r.sparen += f.proMonat; continue; }
+      if (art === "ruecklage") { r.ruecklagen += f.proMonat; continue; }
+      if (art === "transfer") { r.transfer += f.proMonat; continue; }
+      if (!opt.topfSicht && nicht.includes(String(f.gruppe).toLowerCase())) continue;
+      r.nachGruppe[f.gruppe] = (r.nachGruppe[f.gruppe] || 0) + f.proMonat;
+      if (f.haeufigkeit < 12 && !f.faellig.length) r.ohneFaellig++;
+    }
+    return r;
+  }
+
+  // Kennzahlen (Bezeichnung in Spalte B, Wert in Spalte F) und Monat aus der Übersicht
+  function leseKennzahlen(blatt) {
+    const r = { monat: null, werte: [] };
+    if (!blatt) return r;
+    const zeilen = blatt.zeilen;
+    const namen = i => (zeilen[i] || []).map(normName);
+    let start = -1, ende = zeilen.length;
+    for (let i = 0; i < Math.min(zeilen.length, 120); i++) {
+      const z = zeilen[i] || [];
+      const n = namen(i);
+      if (n.includes("monat") && r.monat == null) {
+        const j = n.indexOf("monat");
+        r.monat = zuDatum(z[j + 1]);
+      }
+      if (n.includes("topf") && n.includes("fixsparen")) start = i + 1;
+      if (start >= 0 && i > start && n.includes("kategorie") && n.includes("anteil")) { ende = i; break; }
+    }
+    if (start < 0) return r;
+    const kontoNamen = new Set();
+    for (let i = start; i < ende; i++) {
+      const z = zeilen[i] || [];
+      const label = typeof z[1] === "string" ? z[1].trim() : "";
+      const wert = typeof z[5] === "number" ? z[5] : zuBetrag(z[5]);
+      if (!label || wert == null) continue;
+      // die zwei Zeilen direkt unter der Töpfe-Kopfzeile sind die Töpfe selbst
+      if (i <= start + 1 && typeof z[2] === "number") { kontoNamen.add(label); continue; }
+      if (kontoNamen.has(label)) continue;
+      r.werte.push({ label, wert });
+    }
+    return r;
+  }
+
   // Welche Fixkosten werden in den nächsten Monaten fällig?
-  function faelligkeiten(fixkosten, abMonat, anzahl = 3) {
+  function faelligkeiten(fixkosten, abMonat, anzahl = 3, opt = {}) {
+    fixkosten = fixkosten.filter(f => fixArtGenau(f, opt) === "ausgabe");
     const r = [];
     let m = abMonat;
     for (let i = 0; i < anzahl; i++) {
@@ -695,7 +903,8 @@
 
   window.Analyse = {
     buchungenAusTabelle, ausArbeitsmappe, zuordnen, berechne, zeitraum, durchschnittVorher, warnungen,
-    fixBuchungen, faelligkeiten, clerBedarfProMonat, clerPrognose, monatVon, naechsterMonat,
+    fixBuchungen, fixUebersicht, faelligkeiten, vermoegenBerechnen, ARTEN,
+    nachHauptgruppe, HAUPTGRUPPEN_NAMEN, clerBedarfProMonat, clerPrognose, monatVon, naechsterMonat,
     STANDARD_REGELN,
     _test: { zuDatum, zuBetrag, normName },
   };
