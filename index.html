@@ -76,6 +76,67 @@
       </div>
 
       <div class="raster">
+
+        <!-- Trend-Kacheln: Einnahmen · Ausgaben · Sparen -->
+        <div class="kacheln breit" id="kacheln">
+          <article class="kachel" data-art="ein">
+            <div class="kachel-kopf"><span class="icon-kreis k-ein" data-icon="ein"></span><h2>Einnahmen</h2></div>
+            <div class="kachel-wert" id="k-ein">–</div>
+            <div class="kachel-unter" id="k-ein-unter"></div>
+            <div class="mini"><canvas id="chart-k-ein" aria-hidden="true"></canvas></div>
+          </article>
+          <article class="kachel" data-art="aus">
+            <div class="kachel-kopf"><span class="icon-kreis k-aus" data-icon="aus"></span><h2>Ausgaben</h2></div>
+            <div class="kachel-wert" id="k-aus">–</div>
+            <div class="kachel-unter" id="k-aus-unter"></div>
+            <div class="mini"><canvas id="chart-k-aus" aria-hidden="true"></canvas></div>
+          </article>
+          <article class="kachel" data-art="spar">
+            <div class="kachel-kopf"><span class="icon-kreis k-spar" data-icon="spar"></span><h2>Sparen</h2></div>
+            <div class="kachel-wert" id="k-spar">–</div>
+            <div class="kachel-unter" id="k-spar-unter"></div>
+            <div class="mini"><canvas id="chart-k-spar" aria-hidden="true"></canvas></div>
+          </article>
+        </div>
+
+        <!-- Geldfluss -->
+        <article class="karte breit" id="karte-fluss">
+          <div class="karte-kopf">
+            <h2>Dein Geldfluss</h2>
+            <span class="karte-zusatz" id="fluss-monat"></span>
+          </div>
+          <div class="fluss" id="fluss" role="img" aria-label="Flussdiagramm: Einkommen und wohin es geht"></div>
+          <p class="hinweis">Links: woher das Geld kommt. Rechts: wofür es verwendet wurde. Je breiter, desto grösser der Anteil. Prozente beziehen sich auf dein Einkommen.</p>
+        </article>
+
+        <!-- Kategorien in 2 Ebenen -->
+        <article class="karte" id="karte-gruppen">
+          <div class="karte-kopf">
+            <h2>Ausgaben nach Bereich</h2>
+            <span class="karte-zusatz" id="gruppen-total"></span>
+          </div>
+          <ul class="gruppen" id="gruppen"></ul>
+          <p class="hinweis">Antippen zeigt die einzelnen Kategorien.</p>
+        </article>
+
+        <div class="spalte">
+        <!-- 3) Bin ich im Budget? -->
+        <article class="karte" id="karte-budget" hidden>
+          <div class="karte-kopf">
+            <h2>Budget</h2>
+            <span class="karte-zusatz" id="budget-summe"></span>
+          </div>
+          <ul class="balken budget" id="budget"></ul>
+        </article>
+
+        <!-- 7) Was muss ich beachten? -->
+        <article class="karte" id="karte-warnungen">
+          <h2>Beachten</h2>
+          <ul class="warnungen" id="warnungen"></ul>
+          <div id="naechste-rechnungen"></div>
+        </article>
+        </div>
+
         <!-- 1) Wie viel besitze ich? -->
         <article class="karte breit held" id="karte-vermoegen">
           <div class="held-kopf">
@@ -88,31 +149,6 @@
           </div>
           <div class="diagramm klein-diagramm" id="vm-diagramm"><canvas id="chart-vermoegen" role="img" aria-label="Balkendiagramm Nettovermögen pro Monat"></canvas></div>
           <p class="hinweis" id="vm-leer" hidden>Trag deine Kontostände im Blatt <strong>«Vermögen»</strong> deines Sheets ein (eine Zeile pro Konto und Monat). Dann siehst du hier dein ganzes Vermögen.</p>
-        </article>
-
-        <!-- 2) Wie lief dieser Monat? -->
-        <article class="karte" id="karte-monat">
-          <div class="karte-kopf"><h2 id="monat-titel">Dieser Monat</h2></div>
-          <div class="vergleich" id="monat-balken"></div>
-          <div class="ergebnis" id="monat-ergebnis"></div>
-        </article>
-
-        <!-- 3) Bin ich im Budget? -->
-        <article class="karte" id="karte-budget" hidden>
-          <div class="karte-kopf">
-            <h2>Budget</h2>
-            <span class="karte-zusatz" id="budget-summe"></span>
-          </div>
-          <ul class="balken budget" id="budget"></ul>
-        </article>
-
-        <!-- 4) Wohin geht das Geld? -->
-        <article class="karte" id="karte-wohin">
-          <div class="karte-kopf">
-            <h2>Wohin geht das Geld?</h2>
-            <span class="karte-zusatz" id="wohin-total"></span>
-          </div>
-          <ul class="balken" id="kategorien"></ul>
         </article>
 
         <!-- 5) Wo liegt mein Geld? -->
@@ -136,12 +172,6 @@
           <ul class="invest" id="invest"></ul>
         </article>
 
-        <!-- 7) Was muss ich beachten? -->
-        <article class="karte" id="karte-warnungen">
-          <h2>Beachten</h2>
-          <ul class="warnungen" id="warnungen"></ul>
-          <div id="naechste-rechnungen"></div>
-        </article>
 
         <!-- Details (zugeklappt) -->
         <article class="karte breit">

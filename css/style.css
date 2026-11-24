@@ -451,3 +451,89 @@ textarea {
 .detail-block h3 { margin: 0; font-size: 0.9375rem; }
 .detail-block .tabelle-rahmen { margin: 0; }
 .link-knopf { background: none; border: 0; padding: 6px 0; font: inherit; font-size: 0.875rem; font-weight: 600; color: var(--s1); cursor: pointer; min-height: 32px; }
+
+/* ============================================================
+   Kacheln, Geldfluss, Bereiche (2 Ebenen)
+   ============================================================ */
+
+/* Feste Farben pro Bereich (geprüfte Palette, hell/dunkel) */
+:root {
+  --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; --s8: #e34948;
+  --grau-fest: #9a9890; --uebrig: #c3c2b7;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #0ca30c; --s8: #e66767; --grau-fest: #6f6e69; --uebrig: #4a4a46; }
+}
+:root[data-theme="dark"] { --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #0ca30c; --s8: #e66767; --grau-fest: #6f6e69; --uebrig: #4a4a46; }
+
+.f-s1 { fill: var(--s1); background: var(--s1); } .f-s2 { fill: var(--s2); background: var(--s2); }
+.f-s3 { fill: var(--s3); background: var(--s3); } .f-s4 { fill: var(--s4); background: var(--s4); }
+.f-s5 { fill: var(--s5); background: var(--s5); } .f-s6 { fill: var(--s6); background: var(--s6); }
+.f-s7 { fill: var(--s7); background: var(--s7); } .f-s8 { fill: var(--s8); background: var(--s8); }
+.f-grau-fest { fill: var(--grau-fest); background: var(--grau-fest); }
+.f-gut { fill: var(--gut); background: var(--gut); }
+.f-uebrig { fill: var(--uebrig); background: var(--uebrig); }
+.f-ein { fill: var(--text-2); }
+.f-schlecht { fill: var(--kritisch); }
+
+/* Icon im farbigen Kreis */
+.icon-kreis { width: 36px; height: 36px; border-radius: 50%; display: inline-grid; place-items: center; flex: none; }
+.icon-kreis svg { width: 20px; height: 20px; }
+[class*="f-bg-"] { color: var(--text); }
+.f-bg-s1 { background: color-mix(in srgb, var(--s1) 18%, var(--flaeche)); color: var(--s1); }
+.f-bg-s2 { background: color-mix(in srgb, var(--s2) 18%, var(--flaeche)); color: var(--s2); }
+.f-bg-s3 { background: color-mix(in srgb, var(--s3) 18%, var(--flaeche)); color: var(--s3); }
+.f-bg-s4 { background: color-mix(in srgb, var(--s4) 20%, var(--flaeche)); color: color-mix(in srgb, var(--s4) 80%, var(--text)); }
+.f-bg-s5 { background: color-mix(in srgb, var(--s5) 18%, var(--flaeche)); color: var(--s5); }
+.f-bg-s6 { background: color-mix(in srgb, var(--s6) 16%, var(--flaeche)); color: var(--s6); }
+.f-bg-s7 { background: color-mix(in srgb, var(--s7) 16%, var(--flaeche)); color: var(--s7); }
+.f-bg-s8 { background: color-mix(in srgb, var(--s8) 16%, var(--flaeche)); color: var(--s8); }
+.f-bg-grau-fest { background: var(--flaeche-2); color: var(--text-2); }
+.k-ein { background: color-mix(in srgb, var(--s1) 16%, var(--flaeche)); color: var(--s1); }
+.k-aus { background: color-mix(in srgb, var(--s2) 16%, var(--flaeche)); color: var(--s2); }
+.k-spar { background: color-mix(in srgb, var(--gut) 16%, var(--flaeche)); color: var(--gut-text); }
+
+/* Trend-Kacheln */
+.kacheln { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.kachel {
+  background: var(--flaeche); border: 1px solid var(--rand); border-radius: var(--radius);
+  padding: 14px 14px 8px; box-shadow: var(--schatten); min-width: 0; display: flex; flex-direction: column;
+}
+.kachel-kopf { display: flex; align-items: center; gap: 8px; }
+.kachel-kopf h2 { font-size: 0.9375rem; }
+.kachel-kopf .icon-kreis { width: 30px; height: 30px; }
+.kachel-kopf .icon-kreis svg { width: 16px; height: 16px; }
+.kachel-wert { font-size: clamp(1.1rem, 3.6vw, 1.6rem); font-weight: 750; margin-top: 8px; white-space: nowrap; letter-spacing: -0.01em; }
+.kachel-wert.negativ { color: var(--kritisch); }
+.kachel-unter { font-size: 0.8125rem; color: var(--text-leise); min-height: 1.2em; }
+.mini { height: 56px; margin-top: auto; padding-top: 6px; }
+@media (max-width: 600px) {
+  .kacheln { grid-template-columns: 1fr 1fr; }
+  .kachel[data-art="spar"] { grid-column: 1 / -1; }
+}
+
+/* Geldfluss */
+.fluss { width: 100%; overflow: hidden; }
+.fluss svg { display: block; width: 100%; height: auto; }
+.fluss svg, .fluss svg * { stroke: none; }
+.fluss .knoten { stroke: none; }
+.fluss .band { opacity: 0.32; transition: opacity 0.15s; }
+.fluss .band:hover { opacity: 0.55; }
+.fluss .fluss-name { font-size: 12.5px; fill: var(--text); font-weight: 600; }
+.fluss .fluss-wert { font-size: 11.5px; fill: var(--text-leise); font-variant-numeric: tabular-nums; }
+.fluss .leer { color: var(--text-leise); }
+
+/* Bereiche mit aufklappbaren Kategorien */
+.spalte { display: grid; gap: 16px; align-content: start; min-width: 0; }
+.gruppen { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.gruppen details > summary { list-style: none; display: flex; gap: 12px; align-items: center; cursor: pointer; padding: 6px 0; }
+.gruppen details > summary::-webkit-details-marker { display: none; }
+.g-text { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.g-zeile { display: flex; justify-content: space-between; gap: 8px; }
+.g-zeile .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.g-zeile .betrag { font-weight: 600; font-variant-numeric: tabular-nums; }
+.g-text .spur { display: block; height: 6px; border-radius: 3px; background: var(--flaeche-2); overflow: hidden; }
+.g-text .fuellung { display: block; height: 100%; border-radius: 3px; }
+.g-text .detail { font-size: 0.8125rem; color: var(--text-leise); }
+.unterliste { list-style: none; margin: 2px 0 8px 48px; padding: 0; display: grid; gap: 2px; font-size: 0.875rem; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.unterliste li { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; border-bottom: 1px solid var(--linie); }

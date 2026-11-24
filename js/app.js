@@ -248,12 +248,13 @@
     monatsauswahl();
     kontoFilterAnzeigen();
     vermoegenKarten();
-    monatKarte();
+    kacheln();
+    fluss();
+    gruppen();
     warnungsliste();
     budgetKarte();
     fixkostenKarten();
     sheetKennzahlen();
-    kategorien();
     zahlungsmittel();
     buchungsTabelle();
     einstellungenAnzeigen();
@@ -363,63 +364,179 @@
     for (const f of el.querySelectorAll("[data-breite]")) f.style.width = `${f.dataset.breite}%`;
   }
 
-  // «Wohin geht das Geld?» – die 6 grössten variablen Kategorien, Fixkosten als ein Balken, Rest «Übrige»
-  function kategorien() {
+  // ---------- Icons (eigene, einfache Linien-Icons) ----------
+
+  const GRUPPEN_ICON = {
+    "Wohnen": '<path d="M4 11.5 12 5l8 6.5"/><path d="M6.5 10v9h11v-9"/><path d="M10 19v-5h4v5"/>',
+    "Alltag": '<path d="M4 9.5h16l-1.6 9.5H5.6L4 9.5Z"/><path d="m8.5 9.5 2.5-5M15.5 9.5 13 4.5"/>',
+    "Mobilität": '<path d="M5 16.5v-4l2-5h10l2 5v4Z"/><circle cx="8" cy="16.5" r="1.6"/><circle cx="16" cy="16.5" r="1.6"/>',
+    "Gesundheit": '<path d="M12 19s-7-4.4-7-9.5A3.8 3.8 0 0 1 12 7.6a3.8 3.8 0 0 1 7 1.9C19 14.6 12 19 12 19Z"/>',
+    "Freizeit": '<circle cx="12" cy="12" r="3.5"/><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6 18 18M6 18l1.4-1.4M16.6 7.4 18 6"/>',
+    "Kinder": '<circle cx="12" cy="12" r="7.5"/><path d="M9.2 13.8a3.6 3.6 0 0 0 5.6 0"/><path d="M9.5 10h.01M14.5 10h.01"/>',
+    "Abos & Telefon": '<rect x="7.5" y="3.5" width="9" height="17" rx="2"/><path d="M11 17.5h2"/>',
+    "Steuern & Versicherungen": '<path d="M12 3.5 5.5 6v5.5c0 4 2.8 7.3 6.5 8.9 3.7-1.6 6.5-4.9 6.5-8.9V6Z"/>',
+    "Andere": '<circle cx="6.5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="17.5" cy="12" r="1.2"/>',
+    "Sparen": '<path d="m4 16 5.5-5.5 4 4L20 8"/><path d="M15 8h5v5"/>',
+    "ein": '<path d="M7 17 17 7"/><path d="M9 7h8v8"/>',
+    "aus": '<path d="M7 7l10 10"/><path d="M17 9v8H9"/>',
+    "spar": '<path d="m4 16 5.5-5.5 4 4L20 8"/><path d="M15 8h5v5"/>',
+  };
+  const icon = name => `<svg aria-hidden="true" viewBox="0 0 24 24">${GRUPPEN_ICON[name] || GRUPPEN_ICON.Andere}</svg>`;
+  // feste Farbe pro Hauptgruppe (Reihenfolge der Palette, nie zyklisch)
+  const GRUPPEN_FARBE = {
+    "Wohnen": "s1", "Alltag": "s2", "Mobilität": "s3", "Freizeit": "s4", "Gesundheit": "s5",
+    "Kinder": "s6", "Abos & Telefon": "s7", "Steuern & Versicherungen": "s8", "Andere": "grau-fest",
+  };
+
+  // ---------- Trend-Kacheln ----------
+
+  function kacheln() {
     const d = zustand.daten;
     const pm = d.proMonat[zustand.monat];
-    const eintraege = Object.entries(pm.variabelNachKategorie).sort((a, b) => b[1] - a[1]);
-    let liste = eintraege.slice(0, 6);
-    const rest = eintraege.slice(6).reduce((s, e) => s + e[1], 0);
-    if (rest > 0) liste.push(["Übrige", rest]);
-    if (pm.fixAusgaben > 0) liste.push(["Fixkosten", pm.fixAusgaben]);
-    liste.sort((a, b) => b[1] - a[1]);
-    $("wohin-total").textContent = `Total ${Format.chf(pm.ausgaben)}`;
-    balkenliste($("kategorien"), liste, pm.ausgaben || 1, (kat, betrag) => {
-      if (kat === "Fixkosten") return " · Miete, Versicherungen usw.";
-      if (kat === "Übrige") return "";
-      const schnitt = window.Analyse.durchschnittVorher(d, zustand.monat, kat);
-      if (schnitt == null || schnitt === 0) return "";
-      const diff = betrag / schnitt - 1;
-      const hoch = diff * 100 > zustand.einst.kategorieProzent && betrag - schnitt >= 50;
-      const txt = `${diff >= 0 ? "+" : "−"}${Math.abs(Math.round(diff * 100))} % vs. Ø`;
-      return ` · ${hoch ? `<span class="hoch">${txt}</span>` : txt}`;
-    });
-    for (const li of $("kategorien").children) {
-      if (li.querySelector(".name")?.textContent === "Fixkosten") li.classList.add("fix");
-    }
+    const i = d.monate.indexOf(zustand.monat);
+    const verlauf = d.monate.slice(Math.max(0, i - 5), i + 1);
+    const vor = i > 0 ? d.proMonat[d.monate[i - 1]] : null;
+    const gespart = pm.einnahmen - pm.ausgaben;
+    const delta = (jetzt, vorher, mehrGut) => {
+      if (!vor || !vorher) return "";
+      const diff = (jetzt - vorher) / Math.abs(vorher);
+      if (Math.abs(diff) < 0.005) return "gleich wie Vormonat";
+      const gut = (diff > 0) === mehrGut;
+      return `<span class="${gut ? "besser" : "schlechter"}">${diff > 0 ? "▲" : "▼"} ${Math.abs(Math.round(diff * 100))} %</span> vs. Vormonat`;
+    };
+    $("k-ein").textContent = Format.chf(pm.einnahmen);
+    $("k-ein-unter").innerHTML = delta(pm.einnahmen, vor?.einnahmen, true);
+    $("k-aus").textContent = Format.chf(pm.ausgaben);
+    $("k-aus-unter").innerHTML = (pm.rueckerstattungen ? `nach ${Format.chf(pm.rueckerstattungen)} Rückerstattung · ` : "") + delta(pm.ausgaben, vor?.ausgaben, false);
+    $("k-spar").textContent = Format.chf(gespart);
+    $("k-spar").classList.toggle("negativ", gespart < 0);
+    $("k-spar-unter").innerHTML = pm.einnahmen > 0
+      ? `<span class="${gespart / pm.einnahmen * 100 >= zustand.einst.minSparquote ? "besser" : "schlechter"}">${Format.prozent(gespart / pm.einnahmen)}</span> Sparquote`
+      : "keine Einnahmen";
+    for (const k of document.querySelectorAll(".icon-kreis[data-icon]")) k.innerHTML = icon(k.dataset.icon);
+
+    if (!window.Chart) return;
+    const mini = (id, werte, farbName) => {
+      const c = farbe(farbName);
+      neu(id, {
+        type: "line",
+        data: { labels: verlauf.map(Format.monatKurz), datasets: [{
+          data: werte, borderColor: c, backgroundColor: transparent(c, 0.15), fill: "origin",
+          borderWidth: 2, tension: 0.4, pointRadius: werte.map((_, j) => j === werte.length - 1 ? 3 : 0), pointBackgroundColor: c,
+        }] },
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: false,
+          plugins: { legend: { display: false }, tooltip: { enabled: false } },
+          scales: { x: { display: false }, y: { display: false, beginAtZero: false } },
+          layout: { padding: { top: 4, bottom: 2, left: 2, right: 4 } },
+        },
+      });
+    };
+    mini("chart-k-ein", verlauf.map(m => d.proMonat[m].einnahmen), "s1");
+    mini("chart-k-aus", verlauf.map(m => d.proMonat[m].ausgaben), "s2");
+    mini("chart-k-spar", verlauf.map(m => d.proMonat[m].einnahmen - d.proMonat[m].ausgaben), "gut");
   }
 
-  // «Dieser Monat»: Einnahmen und Ausgaben (fix + variabel) als Balken, Ergebnis gross
-  function monatKarte() {
+  // ---------- Geldfluss (eigenes SVG-Flussdiagramm) ----------
+
+  function fluss() {
     const d = zustand.daten;
     const pm = d.proMonat[zustand.monat];
-    const variabel = pm.ausgaben - pm.fixAusgaben;
-    const max = Math.max(pm.einnahmen, pm.ausgaben, 1);
-    const pz = v => `${Math.max(0, (v / max) * 100).toFixed(2)}`;
-    $("monat-titel").textContent = Format.monat(zustand.monat);
-    $("monat-balken").innerHTML = `
-      <div class="zeile">
-        <span class="bez">Einnahmen</span>
-        <div class="spur"><div class="seg s1" data-breite="${pz(pm.einnahmen)}"></div></div>
-        <span class="wert">${Format.chf(pm.einnahmen)}</span>
-      </div>
-      <div class="zeile">
-        <span class="bez">Ausgaben</span>
-        <div class="spur"><div class="seg s2" data-breite="${pz(pm.fixAusgaben)}"></div><div class="seg s2-hell" data-breite="${pz(variabel)}"></div></div>
-        <span class="wert">${Format.chf(pm.ausgaben)}</span>
-      </div>
-      <div class="legende klein">
-        <span><i class="punkt s2"></i>Fix ${Format.chf(pm.fixAusgaben)}</span>
-        <span><i class="punkt s2-hell"></i>Variabel ${Format.chf(variabel)}</span>
-      </div>`;
-    for (const f of $("monat-balken").querySelectorAll("[data-breite]")) f.style.width = `${f.dataset.breite}%`;
-    const gespart = pm.einnahmen - pm.ausgaben;
-    const gut = gespart >= 0;
-    const quote = pm.einnahmen > 0 ? ` · ${Format.prozent(gespart / pm.einnahmen)} der Einnahmen` : "";
-    $("monat-ergebnis").innerHTML = `
-      <span class="ergebnis-bez">${gut ? "Gespart" : "Mehr ausgegeben als eingenommen"}</span>
-      <span class="ergebnis-zahl ${gut ? "gut" : "schlecht"}">${Format.chf(Math.abs(gespart))}</span>
-      <span class="ergebnis-unter">${gut ? quote.replace(" · ", "") : ""}${pm.sparen ? `${gut ? " · " : ""}zusätzlich ${Format.chf(pm.sparen)} fest gespart` : ""}</span>`;
+    $("fluss-monat").textContent = Format.monat(zustand.monat);
+    const A = window.Analyse;
+    const gruppenListe = A.nachHauptgruppe(pm);
+
+    // Rechte Seite: Hauptgruppen (brutto), Sparen, Übrig
+    const rechts = gruppenListe.map(g => ({ name: g.name, wert: g.summe, farbe: GRUPPEN_FARBE[g.name] || "grau-fest" }));
+    if (pm.sparen > 0) rechts.push({ name: "Sparen & Investieren", wert: pm.sparen, farbe: "gut", icon: "Sparen" });
+    const brutto = rechts.reduce((s, r) => s + r.wert, 0);
+
+    // Linke Seite: Einkommen, Rückerstattungen, ggf. Fehlbetrag
+    const links = [];
+    const einkommenNachArt = {};
+    for (const b of pm.buchungen) {
+      if (!b.einnahme || b.umbuchung || /rückerstatt|rueckerstatt|erstattung|retoure/i.test(b.kategorie)) continue;
+      const name = b.fix ? b.beschreibung : b.kategorie;
+      einkommenNachArt[name] = (einkommenNachArt[name] || 0) + b.einnahme;
+    }
+    for (const [name, wert] of Object.entries(einkommenNachArt).sort((a, b) => b[1] - a[1])) links.push({ name, wert });
+    if (pm.rueckerstattungen > 0) links.push({ name: "Rückerstattungen", wert: pm.rueckerstattungen });
+    const linksSumme = links.reduce((s, l) => s + l.wert, 0);
+    if (linksSumme > brutto + 0.5) rechts.push({ name: "Übrig", wert: linksSumme - brutto, farbe: "uebrig" });
+    else if (brutto > linksSumme + 0.5) links.push({ name: "Aus Erspartem", wert: brutto - linksSumme, minus: true });
+    const total = Math.max(linksSumme, brutto);
+    if (total <= 0) { $("fluss").innerHTML = '<p class="leer">Keine Daten für diesen Monat.</p>'; return; }
+
+    // Geometrie
+    const breite = $("fluss").clientWidth || 600;
+    const schmal = breite < 520;
+    const W = breite, linksB = schmal ? 92 : 150, knotenB = 12;
+    const rechtsX = schmal ? W - 150 : W - 260;
+    const gap = 6, minH = 16;   // Mindesthöhe, damit kleine Posten lesbar bleiben
+    const hoeheProCHF = 300 / total;
+    const ein = pm.einnahmen || 1;
+    const prozent = w => `${Math.round(w / ein * 100)} %`;
+
+    let y = 4; const linksPos = links.map(l => { const h = Math.max(minH, l.wert * hoeheProCHF); const p = { ...l, y, h }; y += h + gap; return p; });
+    const linksEnde = y;
+    y = 4; const rechtsPos = rechts.map(r => { const h = Math.max(minH, r.wert * hoeheProCHF); const p = { ...r, y, h }; y += h + gap; return p; });
+    const H = Math.max(linksEnde, y) + 4;
+
+    // Bänder: der linke Block (alle Quellen zusammen) verteilt sich der Reihe nach auf die rechten Knoten
+    const lx = linksB, rx = rechtsX;
+    const linksOben = linksPos[0].y;
+    let quelleY = linksOben;
+    const linksGesamtH = linksPos[linksPos.length - 1].y + linksPos[linksPos.length - 1].h - linksOben;
+    const rechtsWert = rechtsPos.reduce((s, r) => s + r.wert, 0);
+    const baender = rechtsPos.map(r => {
+      const h0 = r.wert / rechtsWert * linksGesamtH;   // Anteil am linken Block
+      const y0 = quelleY; quelleY += h0;
+      const mx = (lx + knotenB + rx) / 2;
+      return `<path class="band f-${r.farbe}" d="M${lx + knotenB},${y0} C${mx},${y0} ${mx},${r.y} ${rx},${r.y} L${rx},${r.y + r.h} C${mx},${r.y + r.h} ${mx},${y0 + h0} ${lx + knotenB},${y0 + h0} Z"><title>${esc(r.name)}: ${Format.chf(r.wert)}</title></path>`;
+    }).join("");
+
+    const linksSvg = linksPos.map(l => `
+      <rect class="knoten ${l.minus ? "f-schlecht" : "f-ein"}" x="${lx}" y="${l.y}" width="${knotenB}" height="${l.h}" rx="3"/>
+      <text class="fluss-name" x="${lx - 8}" y="${l.y + l.h / 2 - (l.h > 30 ? 7 : 0)}" text-anchor="end" dominant-baseline="middle">${esc(kuerze(l.name, schmal ? 11 : 18))}</text>
+      ${l.h > 30 ? `<text class="fluss-wert" x="${lx - 8}" y="${l.y + l.h / 2 + 9}" text-anchor="end" dominant-baseline="middle">${Format.zahl(l.wert)}</text>` : ""}`).join("");
+
+    const rechtsSvg = rechtsPos.map(r => `
+      <rect class="knoten f-${r.farbe}" x="${rx}" y="${r.y}" width="${knotenB}" height="${r.h}" rx="3"/>
+      ${r.h > 30
+        ? `<text class="fluss-name" x="${rx + knotenB + 8}" y="${r.y + r.h / 2 - 7}" dominant-baseline="middle">${esc(kuerze(r.name, schmal ? 14 : 26))}</text>
+           <text class="fluss-wert" x="${rx + knotenB + 8}" y="${r.y + r.h / 2 + 9}" dominant-baseline="middle">${Format.zahl(r.wert)} · ${prozent(r.wert)}</text>`
+        : `<text class="fluss-name" x="${rx + knotenB + 8}" y="${r.y + r.h / 2}" dominant-baseline="middle">${esc(kuerze(r.name, schmal ? 11 : 26))} <tspan class="fluss-wert">${prozent(r.wert)}</tspan></text>`}`).join("");
+
+    $("fluss").innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="xMinYMin meet">${baender}${linksSvg}${rechtsSvg}</svg>`;
+  }
+
+  function kuerze(t, n) { t = String(t); return t.length > n ? `${t.slice(0, n - 1)}…` : t; }
+
+  // ---------- Ausgaben nach Bereich (2 Ebenen) ----------
+
+  function gruppen() {
+    const d = zustand.daten;
+    const pm = d.proMonat[zustand.monat];
+    const liste = window.Analyse.nachHauptgruppe(pm);
+    const brutto = liste.reduce((s, g) => s + g.summe, 0);
+    const ein = pm.einnahmen;
+    $("gruppen-total").textContent = `Total ${Format.chf(brutto)}`;
+    const max = liste.length ? liste[0].summe : 1;
+    $("gruppen").innerHTML = liste.map(g => `
+      <li>
+        <details>
+          <summary>
+            <span class="icon-kreis f-bg-${GRUPPEN_FARBE[g.name] || "grau-fest"}">${icon(g.name)}</span>
+            <span class="g-text">
+              <span class="g-zeile"><span class="name">${esc(g.name)}</span><span class="betrag">${Format.chf(g.summe)}</span></span>
+              <span class="spur" aria-hidden="true"><span class="fuellung f-${GRUPPEN_FARBE[g.name] || "grau-fest"}" data-breite="${Math.max(1, g.summe / max * 100).toFixed(1)}"></span></span>
+              <span class="detail">${ein ? `${Math.round(g.summe / ein * 100)} % deines Einkommens` : ""}</span>
+            </span>
+          </summary>
+          <ul class="unterliste">${g.kategorien.map(k => `<li><span>${esc(k.name)}${k.fix ? ' <em class="marke">fix</em>' : ""}</span><span>${Format.chf(k.betrag)}</span></li>`).join("")}</ul>
+        </details>
+      </li>`).join("") || '<li class="leer">Keine Ausgaben in diesem Monat.</li>';
+    for (const f of $("gruppen").querySelectorAll("[data-breite]")) f.style.width = `${f.dataset.breite}%`;
   }
 
   // ---------- Vermögen ----------
@@ -1001,9 +1118,15 @@
     einstellungAendern();
   });
 
+  let flussTimer;
+  window.addEventListener("resize", () => {
+    clearTimeout(flussTimer);
+    flussTimer = setTimeout(() => { if (zustand.daten) fluss(); }, 150);
+  });
+
   // Hell/Dunkel gewechselt -> Diagrammfarben neu setzen
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-    if (zustand.daten) { zeichneDiagramme(); vermoegenKarten(); }
+    if (zustand.daten) { zeichneDiagramme(); vermoegenKarten(); kacheln(); }
   });
 
   // ---------- Start ----------

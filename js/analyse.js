@@ -265,7 +265,7 @@
       proMonat[m] = {
         monat: m, einnahmen: 0, ausgaben: 0, nachKategorie: {}, einnahmenNachKategorie: {},
         nachZahlungsmittel: {}, buchungen: [], saldoEnde: null, umbuchungRaus: 0, umbuchungRein: 0,
-        sparen: 0, fixAusgaben: 0, variabelNachKategorie: {}, variabelNachKonto: {},
+        sparen: 0, fixAusgaben: 0, variabelNachKategorie: {}, variabelNachKonto: {}, rueckerstattungen: 0,
       };
       if (m === letzter || monate.length > 600) break;
     }
@@ -279,6 +279,12 @@
         if (b.fix) continue; // feste Daueraufträge zwischen eigenen Konten: nicht extra melden
         pm.umbuchungRaus += b.ausgabe;
         pm.umbuchungRein += b.einnahme;
+        continue;
+      }
+      // Rückerstattungen sind kein Einkommen: sie verringern die Ausgaben
+      if (b.einnahme && /rückerstatt|rueckerstatt|erstattung|retoure/i.test(b.kategorie)) {
+        pm.rueckerstattungen += b.einnahme;
+        pm.ausgaben -= b.einnahme;
         continue;
       }
       pm.einnahmen += b.einnahme;
@@ -624,6 +630,40 @@
     return budgets;
   }
 
+  // ---------- Hauptgruppen (Ebene 1) für Kategorien (Ebene 2) ----------
+
+  const HAUPTGRUPPEN = [
+    ["Kinder", /kind/],
+    ["Wohnen", /wohn|miete|haushalt|nebenkosten|strom|energie|möbel/],
+    ["Alltag", /lebensmittel|auswärts|restaurant|kaffee|kleid|coiffeur|alltag|drogerie|körperpflege/],
+    ["Mobilität", /auto|mobil|parkplatz|öv|verkehr|velo|benzin|tank/],
+    ["Gesundheit", /gesund|kranken|apotheke|arzt|zahn/],
+    ["Freizeit", /freizeit|geschenk|ferien|verein|hobby|sport|reise|ausgang/],
+    ["Abos & Telefon", /telefon|abo|internet|handy|streaming/],
+    ["Steuern & Versicherungen", /steuer|versicher|gebühr|rechnung|bank/],
+  ];
+  const HAUPTGRUPPEN_NAMEN = HAUPTGRUPPEN.map(h => h[0]).concat("Andere");
+
+  function hauptgruppe(kategorie) {
+    const k = String(kategorie || "").toLowerCase();
+    const treffer = HAUPTGRUPPEN.find(([, re]) => re.test(k));
+    return treffer ? treffer[0] : "Andere";
+  }
+
+  // Ausgaben eines Monats nach Hauptgruppe, mit den Einzelkategorien darunter
+  function nachHauptgruppe(pm) {
+    const gruppen = {};
+    const fixKat = new Set(pm.buchungen.filter(b => b.fix && b.ausgabe && !b.umbuchung).map(b => b.kategorie));
+    for (const [kat, betrag] of Object.entries(pm.nachKategorie)) {
+      if (betrag <= 0) continue;
+      const g = gruppen[hauptgruppe(kat)] ||= { name: hauptgruppe(kat), summe: 0, kategorien: [] };
+      g.summe += betrag;
+      g.kategorien.push({ name: kat, betrag, fix: fixKat.has(kat) && !(kat in pm.variabelNachKategorie) });
+    }
+    for (const g of Object.values(gruppen)) g.kategorien.sort((a, b) => b.betrag - a.betrag);
+    return Object.values(gruppen).sort((a, b) => b.summe - a.summe);
+  }
+
   // ---------- Blatt «Vermögen»: Stände pro Konto/Anlage und Stichtag ----------
 
   const ARTEN = ["Konto", "Rücklage", "Vorsorge", "Investment", "Schulden", "Kinder", "Andere"];
@@ -863,7 +903,8 @@
 
   window.Analyse = {
     buchungenAusTabelle, ausArbeitsmappe, zuordnen, berechne, zeitraum, durchschnittVorher, warnungen,
-    fixBuchungen, fixUebersicht, faelligkeiten, vermoegenBerechnen, ARTEN, clerBedarfProMonat, clerPrognose, monatVon, naechsterMonat,
+    fixBuchungen, fixUebersicht, faelligkeiten, vermoegenBerechnen, ARTEN,
+    nachHauptgruppe, HAUPTGRUPPEN_NAMEN, clerBedarfProMonat, clerPrognose, monatVon, naechsterMonat,
     STANDARD_REGELN,
     _test: { zuDatum, zuBetrag, normName },
   };
