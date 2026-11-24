@@ -29,7 +29,10 @@
 
   const SPEICHER_DATEN = "finanzDashboard.daten.v1";
   const SPEICHER_EINST = "finanzDashboard.einstellungen.v1";
-  const STANDARD_EINST = { kategorieProzent: 30, minSparquote: 10, grosseAusgabe: 500, umbuchungen: "Umbuchung" };
+  const STANDARD_EINST = {
+    kategorieProzent: 30, minSparquote: 10, grosseAusgabe: 500, umbuchungen: "Umbuchung",
+    regeln: window.Analyse.STANDARD_REGELN,
+  };
   const umbuchungsListe = () => String(zustand.einst.umbuchungen || "").split(",");
 
   function speicherLesen(key) {
@@ -45,7 +48,7 @@
   // ---------- Zustand ----------
 
   const zustand = {
-    quelle: null,          // { dateiname, geladenAm, beispiel }
+    quelle: null,          // { geladenAm, beispiel }
     daten: null,           // Ergebnis von Analyse.berechne
     buchungen: [],
     monat: null,           // ausgewählter Monat "JJJJ-MM"
@@ -68,38 +71,64 @@
     KEIN_BLATT: "In der Excel-Datei wurde kein Tabellenblatt gefunden.",
     ALTES_XLS: "Das alte Format .xls wird nicht unterstützt. Bitte in Excel mit «Speichern unter» als .xlsx speichern.",
     NUMBERS: "Numbers-Dateien bitte zuerst exportieren: In Numbers «Ablage → Exportieren → Excel».",
-    KEINE_SPALTEN: "Die Spalten wurden nicht erkannt. Die erste Zeile braucht mindestens «Datum» und «Ausgaben» oder «Einnahmen».",
+    KEINE_SPALTEN: "Die Spalten wurden nicht erkannt. Nötig sind mindestens ein Datum und ein Betrag (oder «Einnahmen»/«Ausgaben»).",
     KEINE_BUCHUNGEN: "Es wurden keine Buchungen mit Datum und Betrag gefunden.",
   };
 
-  async function ladeAusPuffer(name, buffer, beispiel) {
-    try {
-      const zeilen = await window.TabellenLeser.leseDatei(name, buffer);
-      const ergebnis = window.Analyse.buchungenAusTabelle(zeilen);
-      zustand.quelle = { dateiname: name, geladenAm: new Date().toISOString(), beispiel };
-      setzeBuchungen(ergebnis.buchungen, true);
+  /*
+   * Lädt eine oder mehrere Dateien und fügt sie zu den vorhandenen Daten hinzu.
+   * Gleiches Konto + gleicher Zeitraum -> die neue Datei ersetzt die alten
+   * Buchungen dieses Zeitraums (so gibt es keine Doppelten).
+   */
+  async function ladeDateien(dateien, beispiel = false) {
+    const NAMEN = { kategorie: "Kategorie", zahlungsmittel: "Zahlungsmittel", saldo: "Saldo" };
+    let alle = beispiel || zustand.quelle?.beispiel ? [] : [...zustand.buchungen];
+    const zeilenText = [];
+    let geladen = 0, fehler = false;
 
-      if (!beispiel) {
-        const ok = speicherSchreiben(SPEICHER_DATEN, { quelle: zustand.quelle, buchungen: ergebnis.buchungen });
-        if (!ok) melde("Die Daten konnten auf diesem Gerät nicht gespeichert werden (privates Surfen?). Das Dashboard funktioniert trotzdem.");
+    for (const { name, buffer } of dateien) {
+      try {
+        const zeilen = await window.TabellenLeser.leseDatei(name, buffer);
+        const e = window.Analyse.buchungenAusTabelle(zeilen, name);
+        alle = alle.filter(b => !(b.konto === e.konto && b.datum >= e.von && b.datum <= e.bis)).concat(e.buchungen);
+        let t = `✓ ${name}: ${e.buchungen.length} Buchungen · ${e.konto} · ${Format.datum(e.von)} – ${Format.datum(e.bis)}`;
+        const n = e.uebersprungen;
+        if (n) t += ` · ${n} ${n === 1 ? "Zeile" : "Zeilen"} ohne Datum/Betrag übersprungen`;
+        const fehlend = e.fehlendeSpalten.map(s => NAMEN[s]).filter(Boolean);
+        if (fehlend.length) t += ` · Spalte nicht gefunden: ${fehlend.join(", ")}`;
+        zeilenText.push(t);
+        geladen++;
+      } catch (err) {
+        console.error(err);
+        fehler = true;
+        zeilenText.push(`✗ ${name}: ${FEHLERTEXTE[err.message] || "Die Datei konnte nicht gelesen werden."}`);
       }
-
-      const teile = [`${ergebnis.buchungen.length} Buchungen geladen.`];
-      const n = ergebnis.uebersprungen;
-      if (n) teile.push(`${n} ${n === 1 ? "Zeile" : "Zeilen"} ohne Datum oder Betrag ${n === 1 ? "wurde" : "wurden"} übersprungen.`);
-      const NAMEN = { kategorie: "Kategorie", einnahmen: "Einnahmen", ausgaben: "Ausgaben", zahlungsmittel: "Zahlungsmittel", saldo: "Saldo" };
-      const fehlend = ergebnis.fehlendeSpalten.filter(s => NAMEN[s]).map(s => NAMEN[s]);
-      if (fehlend.length) teile.push(`Spalte nicht gefunden: ${fehlend.join(", ")}.`);
-      if (beispiel) teile.push("Das sind erfundene Beispieldaten.");
-      melde(teile.join(" "));
-    } catch (e) {
-      console.error(e);
-      melde(FEHLERTEXTE[e.message] || "Die Datei konnte nicht gelesen werden.", true);
     }
+    if (!geladen) { melde(zeilenText.join("\n"), true); return; }
+
+    alle.forEach((b, i) => { b.nr = i; });
+    zustand.quelle = { geladenAm: new Date().toISOString(), beispiel };
+    setzeBuchungen(alle, true);
+
+    if (beispiel) zeilenText.push("Das sind erfundene Beispieldaten.");
+    else if (!speichern()) zeilenText.push("Die Daten konnten auf diesem Gerät nicht gespeichert werden (privates Surfen?). Das Dashboard funktioniert trotzdem.");
+    const konten = zustand.daten.konten;
+    if (konten.includes("Haushaltsbuch") && konten.length > 1) {
+      zeilenText.push("Achtung: Haushaltsbuch und Bank-Export sind gleichzeitig geladen. Dieselben Ausgaben könnten doppelt zählen. Nicht benötigte Konten kannst du unter «Einstellungen und Daten» entfernen.");
+    }
+    const offen = zustand.buchungen.filter(b => b.kategorie === "Nicht zugeordnet").length;
+    if (offen) zeilenText.push(`${offen} Buchungen ohne Kategorie – Regeln dafür kannst du unter «Einstellungen und Daten» ergänzen.`);
+    melde(zeilenText.join("\n"), fehler);
+  }
+
+  function speichern() {
+    const daten = zustand.buchungen.map(({ umbuchung, ...rest }) => rest);
+    return speicherSchreiben(SPEICHER_DATEN, { version: 2, geladenAm: zustand.quelle.geladenAm, buchungen: daten });
   }
 
   function setzeBuchungen(buchungen, neuerMonat) {
     zustand.buchungen = buchungen;
+    window.Analyse.zuordnen(buchungen, zustand.einst.regeln);
     zustand.daten = window.Analyse.berechne(buchungen, umbuchungsListe());
     if (neuerMonat || !zustand.daten.proMonat[zustand.monat]) {
       zustand.monat = letzterVollerMonat(zustand.daten.monate);
@@ -127,7 +156,7 @@
     el.classList.toggle("fehler", fehler);
     el.hidden = false;
     clearTimeout(meldungTimer);
-    if (!fehler) meldungTimer = setTimeout(() => { el.hidden = true; }, 8000);
+    if (!fehler) meldungTimer = setTimeout(() => { el.hidden = true; }, 6000 + text.length * 40);
   }
 
   // ---------- Alles neu zeichnen ----------
@@ -154,10 +183,13 @@
 
   function statusZeile() {
     const q = zustand.quelle;
+    const konten = zustand.daten.konten;
     $("status").textContent = q.beispiel
       ? "Beispieldaten (erfunden)"
-      : `${q.dateiname} · auf diesem Gerät gespeichert`;
-    $("datei-text").textContent = "Andere Datei";
+      : `${konten.length === 1 ? konten[0] : `${konten.length} Konten`} · auf diesem Gerät gespeichert`;
+    $("datei-text").textContent = "Datei hinzufügen";
+    kontenListe();
+    offeneBuchungen();
     $("speicher-info").textContent = q.beispiel
       ? "Die Beispieldaten werden nicht gespeichert."
       : `Gespeichert in diesem Browser seit ${new Date(q.geladenAm).toLocaleString("de-CH", { dateStyle: "medium", timeStyle: "short" })}. Nur auf diesem Gerät.`;
@@ -492,6 +524,40 @@
     $("e-spar").value = zustand.einst.minSparquote;
     $("e-gross").value = zustand.einst.grosseAusgabe;
     $("e-umb").value = zustand.einst.umbuchungen;
+    if (document.activeElement !== $("e-regeln")) $("e-regeln").value = zustand.einst.regeln;
+  }
+
+  // Liste der geladenen Konten (mit "Entfernen")
+  function kontenListe() {
+    const el = $("konten");
+    const proKonto = {};
+    for (const b of zustand.buchungen) {
+      const k = proKonto[b.konto] ||= { anzahl: 0, von: b.datum, bis: b.datum };
+      k.anzahl++;
+      if (b.datum < k.von) k.von = b.datum;
+      if (b.datum > k.bis) k.bis = b.datum;
+    }
+    el.innerHTML = Object.entries(proKonto).map(([name, k]) => `
+      <li>
+        <div><strong>${esc(name)}</strong>
+        <span>${k.anzahl} Buchungen · ${Format.datum(k.von)} – ${Format.datum(k.bis)}</span></div>
+        ${zustand.quelle.beispiel ? "" : `<button class="knopf knopf-klein" type="button" data-entfernen="${esc(name)}">Entfernen</button>`}
+      </li>`).join("");
+  }
+
+  // Häufigste Texte ohne Kategorie -> Hilfe beim Regeln-Schreiben
+  function offeneBuchungen() {
+    const zaehler = {};
+    for (const b of zustand.buchungen) {
+      if (b.kategorie !== "Nicht zugeordnet") continue;
+      const t = (b.beschreibung || "(ohne Text)").slice(0, 60);
+      const z = zaehler[t] ||= { anzahl: 0, summe: 0 };
+      z.anzahl++; z.summe += b.ausgabe;
+    }
+    const liste = Object.entries(zaehler).sort((a, b) => b[1].summe - a[1].summe).slice(0, 10);
+    $("offen-box").hidden = !liste.length;
+    $("offen").innerHTML = liste.map(([t, z]) =>
+      `<li><span>${esc(t)}</span><span class="betrag">${z.anzahl}× · ${Format.chf(z.summe)}</span></li>`).join("");
   }
 
   function einstellungAendern() {
@@ -504,6 +570,7 @@
       minSparquote: lese("e-spar", STANDARD_EINST.minSparquote, 0, 90),
       grosseAusgabe: lese("e-gross", STANDARD_EINST.grosseAusgabe, 50, 100000),
       umbuchungen: $("e-umb").value.split(",").map(s => s.trim()).filter(Boolean).join(", "),
+      regeln: $("e-regeln").value,
     };
     speicherSchreiben(SPEICHER_EINST, zustand.einst);
     setzeBuchungen(zustand.buchungen, false); // neu rechnen
@@ -528,17 +595,17 @@
   }
 
   $("datei").addEventListener("change", async e => {
-    const datei = e.target.files[0];
+    const dateien = Array.from(e.target.files);
     e.target.value = ""; // gleiche Datei nochmals wählbar
-    if (!datei) return;
-    await ladeAusPuffer(datei.name, await datei.arrayBuffer(), false);
+    if (!dateien.length) return;
+    await ladeDateien(await Promise.all(dateien.map(async d => ({ name: d.name, buffer: await d.arrayBuffer() }))));
   });
 
   $("beispiel").addEventListener("click", async () => {
     try {
       const antwort = await fetch("beispieldaten/beispiel-haushalt.xlsx");
       if (!antwort.ok) throw new Error();
-      await ladeAusPuffer("beispiel-haushalt.xlsx", await antwort.arrayBuffer(), true);
+      await ladeDateien([{ name: "beispiel-haushalt.xlsx", buffer: await antwort.arrayBuffer() }], true);
     } catch {
       melde("Die Beispieldaten konnten nicht geladen werden. (Beim direkten Öffnen der Datei vom Computer geht das nicht – bitte über die Webadresse öffnen.)", true);
     }
@@ -568,7 +635,7 @@
   }
 
   $("suche").addEventListener("input", buchungsTabelle);
-  for (const id of ["e-kat", "e-spar", "e-gross", "e-umb"]) $(id).addEventListener("change", einstellungAendern);
+  for (const id of ["e-kat", "e-spar", "e-gross", "e-umb", "e-regeln"]) $(id).addEventListener("change", einstellungAendern);
 
   $("loeschen").addEventListener("click", () => {
     if (!confirm("Gespeicherte Finanzdaten von diesem Gerät löschen?\n\nDeine Excel-Datei selbst bleibt unverändert.")) return;
@@ -578,8 +645,27 @@
     $("dashboard").hidden = true;
     $("start").hidden = false;
     $("status").textContent = "Keine Datei geladen";
-    $("datei-text").textContent = "Excel öffnen";
+    $("datei-text").textContent = "Datei öffnen";
     melde("Die Daten wurden von diesem Gerät gelöscht.");
+  });
+
+  $("konten").addEventListener("click", e => {
+    const knopf = e.target.closest("[data-entfernen]");
+    if (!knopf) return;
+    const konto = knopf.dataset.entfernen;
+    if (!confirm(`Alle Buchungen von «${konto}» von diesem Gerät entfernen?`)) return;
+    const rest = zustand.buchungen.filter(b => b.konto !== konto);
+    if (!rest.length) { $("loeschen").click(); return; }
+    rest.forEach((b, i) => { b.nr = i; });
+    setzeBuchungen(rest, false);
+    speichern();
+    melde(`«${konto}» wurde entfernt.`);
+  });
+
+  $("regeln-standard").addEventListener("click", () => {
+    if (!confirm("Deine Regeln durch die Standard-Regeln ersetzen?")) return;
+    $("e-regeln").value = window.Analyse.STANDARD_REGELN;
+    einstellungAendern();
   });
 
   // Hell/Dunkel gewechselt -> Diagrammfarben neu setzen
@@ -591,7 +677,7 @@
 
   const gespeichert = speicherLesen(SPEICHER_DATEN);
   if (gespeichert && Array.isArray(gespeichert.buchungen) && gespeichert.buchungen.length) {
-    zustand.quelle = gespeichert.quelle;
+    zustand.quelle = { beispiel: false, geladenAm: gespeichert.geladenAm || gespeichert.quelle?.geladenAm };
     setzeBuchungen(gespeichert.buchungen, true);
   }
 

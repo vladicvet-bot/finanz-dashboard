@@ -35,10 +35,10 @@
     <div class="kopf-aktionen">
       <label class="knopf knopf-primaer" for="datei">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 4v11m0-11-4 4m4-4 4 4M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/></svg>
-        <span id="datei-text">Excel öffnen</span>
+        <span id="datei-text">Datei öffnen</span>
       </label>
-      <input type="file" id="datei" class="unsichtbar"
-             accept=".xlsx,.xlsm,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv">
+      <input type="file" id="datei" class="unsichtbar" multiple
+             accept=".xlsx,.xlsm,.csv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,text/plain">
     </div>
   </header>
 
@@ -52,12 +52,12 @@
           <svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
         </div>
         <h2>Deine Finanzen auf einen Blick</h2>
-        <p>Wähle deine Haushalts-Excel aus. Sie wird <strong>nur auf diesem Gerät</strong> gelesen und berechnet – es wird nichts hochgeladen.</p>
+        <p>Wähle deine Haushalts-Excel oder den CSV-Export deiner Bank aus. Die Dateien werden <strong>nur auf diesem Gerät</strong> gelesen und berechnet – es wird nichts hochgeladen.</p>
         <div class="start-knoepfe">
-          <label class="knopf knopf-primaer knopf-gross" for="datei">Excel-Datei wählen</label>
+          <label class="knopf knopf-primaer knopf-gross" for="datei">Dateien wählen</label>
           <button class="knopf knopf-gross" type="button" id="beispiel">Beispieldaten ansehen</button>
         </div>
-        <p class="klein">Erwartete Spalten: Datum, Kategorie, Beschreibung, Einnahmen (CHF), Ausgaben (CHF), Zahlungsmittel, Saldo</p>
+        <p class="klein">Haushaltsbuch mit den Spalten Datum, Kategorie, Beschreibung, Einnahmen (CHF), Ausgaben (CHF), Zahlungsmittel, Saldo – oder Bank-Export (z.B. Raiffeisen CSV). Mehrere Dateien gleichzeitig sind möglich.</p>
       </div>
     </section>
 
@@ -170,6 +170,22 @@
               <label>Diese Kategorien sind <strong>Umbuchungen</strong> (z.B. aufs Sparkonto) und zählen nicht als Einnahme oder Ausgabe:
                 <input type="text" id="e-umb" class="breit-eingabe" placeholder="Umbuchung, Sparkonto" autocomplete="off" autocapitalize="off">
                 <span class="klein-hinweis">Mehrere mit Komma trennen.</span></label>
+            </div>
+            <div class="einst-block">
+              <h3>Geladene Konten</h3>
+              <ul class="konten" id="konten"></ul>
+              <p class="klein-hinweis">Weitere Konten fügst du oben mit «Datei hinzufügen» dazu. Lädst du einen neuen Export vom gleichen Konto, ersetzt er die alten Buchungen im selben Zeitraum.</p>
+            </div>
+            <div class="einst-block" id="offen-box" hidden>
+              <h3>Ohne Kategorie (häufigste Texte)</h3>
+              <ul class="offen" id="offen"></ul>
+              <p class="klein-hinweis">Tipp: Ein Stichwort aus dem Text unten bei den Regeln eintragen.</p>
+            </div>
+            <div class="einst-block">
+              <h3>Kategorie-Regeln für Bank-Exporte</h3>
+              <p class="klein-hinweis">Pro Zeile: <code>Stichwort, Stichwort =&gt; Kategorie</code>. Kommt ein Stichwort im Buchungstext vor, bekommt die Buchung diese Kategorie. Die erste passende Zeile gewinnt. Zeilen mit # sind Notizen.</p>
+              <textarea id="e-regeln" rows="10" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Kategorie-Regeln"></textarea>
+              <button class="knopf knopf-klein" type="button" id="regeln-standard">Standard-Regeln wiederherstellen</button>
             </div>
             <div class="daten-info">
               <p id="speicher-info"></p>

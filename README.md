@@ -37,6 +37,17 @@ Die erste Zeile enthält diese Spaltennamen (die Reihenfolge ist egal):
 - **Umbuchungen** (zum Beispiel aufs oder vom Sparkonto) bekommen die Kategorie **«Umbuchung»**. Sie zählen dann nicht als Einnahme oder Ausgabe, und die Sparquote stimmt. Unter «Einstellungen und Daten» kannst du weitere Kategorien als Umbuchung festlegen, zum Beispiel `Sparkonto, Säule 3a`.
 - Unterstützt werden `.xlsx` und `.csv`. Eine alte `.xls`-Datei speicherst du in Excel mit «Speichern unter» als `.xlsx`. Aus Numbers exportierst du mit «Ablage → Exportieren → Excel».
 
+### Bank-Exporte (CSV)
+
+Statt oder zusätzlich zum Haushaltsbuch kannst du die **CSV-Exporte deiner Bank** öffnen. Getestet ist das Format der **Raiffeisenbank** (Spalten `IBAN, Booked At, Text, Credit/Debit Amount, Balance, Valuta Date`). Andere Banken mit Datum, Text und Betrag funktionieren oft auch.
+
+- **Mehrere Dateien** gleichzeitig wählen oder später mit «Datei hinzufügen» ergänzen. Jedes Konto wird separat geführt, der Kontostand ist die Summe aller Konten.
+- **Keine Doppelten:** Lädst du einen neuen Export vom gleichen Konto, ersetzt er die alten Buchungen im selben Zeitraum.
+- **Kategorien** werden aus dem Buchungstext erkannt, zum Beispiel «Migros» → Lebensmittel. Die Regeln kannst du unter «Einstellungen und Daten» anpassen. Dort siehst du auch die häufigsten Texte, die noch keine Kategorie haben.
+- **Umbuchungen** zwischen deinen eigenen Konten (Sparkonto, Revolut-Aufladung, Kreditkarten-Rechnung) erkennen die Standard-Regeln als «Umbuchung». So zählt nichts doppelt.
+- **Datenschutz:** Von der IBAN werden nur die letzten 4 Ziffern gespeichert, zum Beispiel «Raiffeisen ···1234».
+- **Achtung:** Lade nicht dieselben Ausgaben doppelt, zum Beispiel das Haushaltsbuch **und** den Bank-Export für denselben Zeitraum. Das Dashboard warnt dich in diesem Fall.
+
 Zum Ausprobieren gibt es **erfundene Beispieldaten** unter [`beispieldaten/beispiel-haushalt.xlsx`](beispieldaten/beispiel-haushalt.xlsx). Auf der Startseite lädst du sie mit «Beispieldaten ansehen».
 
 ## Datenschutz – so ist er umgesetzt
@@ -96,7 +107,8 @@ So schaltest du die Seite ein:
 index.html                  Die Webseite (mit Netzwerk-Sperre)
 css/style.css               Aussehen (hell/dunkel, iPhone/iPad/PC)
 js/xlsx-reader.js           Liest Excel und CSV direkt im Browser
-js/analyse.js               Rechnet Monate, Kategorien, Sparquote und Warnungen aus
+js/analyse.js               Erkennt Spalten/Bank-Formate, Kategorie-Regeln, rechnet Monate,
+                            Sparquote, Kontostand und Warnungen aus
 js/app.js                   Bedienung, Diagramme und Speichern auf dem Gerät
 vendor/chart.umd.min.js     Diagramm-Bibliothek Chart.js 4.5.1 (MIT-Lizenz)
 sw.js, manifest.webmanifest Offline-Funktion und «App» auf dem Home-Bildschirm

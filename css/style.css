@@ -138,6 +138,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
   border-left: 4px solid var(--info);
 }
 .meldung.fehler { border-left-color: var(--kritisch); }
+.meldung { white-space: pre-line; font-size: 0.9375rem; overflow-wrap: anywhere; }
 
 /* ---------- Startseite ---------- */
 
@@ -304,6 +305,22 @@ select { font-weight: 600; min-width: 170px; }
 .eingabe input { width: 92px; text-align: right; }
 .breit-eingabe { display: block; width: 100%; max-width: 420px; margin-top: 6px; }
 .klein-hinweis { display: block; font-size: 0.8125rem; color: var(--text-leise); margin-top: 4px; }
+.einst-block { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--linie); }
+.einst-block h3 { margin: 0 0 8px; font-size: 0.9375rem; }
+.einst-block code { font-size: 0.8125rem; background: var(--flaeche-2); padding: 1px 5px; border-radius: 4px; }
+.konten, .offen { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 8px; }
+.konten li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border-radius: 10px; background: var(--flaeche-2); }
+.konten li span { display: block; font-size: 0.8125rem; color: var(--text-2); }
+.offen li { display: flex; justify-content: space-between; gap: 12px; font-size: 0.875rem; padding: 6px 0; border-bottom: 1px solid var(--linie); }
+.offen li span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.offen .betrag { color: var(--text-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.knopf-klein { min-height: 36px; padding: 0 12px; font-size: 0.875rem; }
+textarea {
+  display: block; width: 100%; margin: 8px 0; padding: 10px 12px;
+  font: 14px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--text); background: var(--flaeche); border: 1px solid var(--rand); border-radius: 10px; resize: vertical;
+}
+@media (max-width: 600px) { textarea { font-size: 16px; } }
 .daten-info { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--linie); display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
 .daten-info p { margin: 0; font-size: 0.875rem; color: var(--text-2); }
 
