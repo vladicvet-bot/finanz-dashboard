@@ -21,7 +21,35 @@ Die Seite öffnet deine Excel-Datei und rechnet **alles direkt in deinem Browser
   Die Grenzwerte kannst du unten auf der Seite unter «Einstellungen und Daten» ändern.
 - **Buchungsliste** mit Suche
 
-## So muss deine Excel aussehen
+## Empfohlen: dein Finanz-Sheet als Excel
+
+Am besten liest das Dashboard dein Finanz-Sheet (Google Sheets oder Excel) mit diesen Blättern:
+
+| Blatt | Spalten |
+|---|---|
+| **Ausgaben** | Datum · Was / Geschäft · Kategorie · Betrag CHF · Konto · Zahlmittel · Notiz |
+| **Einnahmen** | Datum · Was / Quelle · Art · Betrag CHF · Konto · Notiz |
+| **Fixkosten** | Posten · Gruppe · Rhythmus · Betrag CHF · Pro Monat · Konto · Notiz · Über Cler · Fällig |
+
+Aus dem Blatt **Übersicht** wird nur die Tabelle «Budget variabel» (Topf · Budget) gelesen. Alles andere, auch der «Jahresplan», berechnet das Dashboard selbst.
+
+Damit zeigt das Dashboard zusätzlich:
+- **Fixkosten nach Gruppe.** Jahres- und Quartalsbeträge werden auf 12 Monate verteilt. Gruppe «Einnahme» zählt als feste Einnahme (zum Beispiel der Lohn), «Sparen & Investieren» als gespart, und «Überweisung» zählt nicht mit, weil es nur eine Umbuchung ist.
+- **Fällige Rechnungen** der nächsten 3 Monate, gemäss der Spalte «Fällig» (zum Beispiel `Feb, Mai, Aug, Nov`).
+- **Cler-Topf:** Wie viel muss monatlich einbezahlt werden, und reicht der Topf für die nächsten 12 Monate? Dafür trägst du den aktuellen Cler-Kontostand unter «Einstellungen und Daten» ein.
+- **Budget variabel pro Topf** (= Konto, z.B. Privat und Gem. Konto). Das Budget liest das Dashboard aus der Tabelle «Budget variabel» (Spalten `Topf · Budget`) im Blatt **Übersicht**. Was ausgegeben wurde, rechnet es für jeden Monat selbst aus den variablen Ausgaben dieses Kontos.
+- **Konto-Filter** «Alle Konten / Gem. Konto / Privat»
+
+**So holst du die Excel-Datei:**
+- **Google Sheets am PC:** Datei → Herunterladen → Microsoft Excel (.xlsx)
+- **Google Sheets auf iPhone/iPad:** ⋯ → Teilen und exportieren → Kopie senden → Excel → «In Dateien sichern»
+- **Excel:** die Datei direkt wählen
+
+Das Dashboard verbindet sich bewusst **nicht** mit Google, so bleibt die Netzwerk-Sperre bestehen. Für neue Zahlen lädst du die Datei einfach erneut. Sie ersetzt die Buchungen im gleichen Zeitraum.
+
+**Geschäftliches ausblenden:** Unter «Einstellungen und Daten → nicht mitzählen» trägst du die Kategorie oder Gruppe ein, zum Beispiel deinen Firmennamen. Diese Angabe bleibt nur auf deinem Gerät.
+
+## Andere Formate: einfaches Haushaltsbuch
 
 Die erste Zeile enthält diese Spaltennamen (die Reihenfolge ist egal):
 
@@ -48,7 +76,7 @@ Statt oder zusätzlich zum Haushaltsbuch kannst du die **CSV-Exporte deiner Bank
 - **Datenschutz:** Von der IBAN werden nur die letzten 4 Ziffern gespeichert, zum Beispiel «Raiffeisen ···1234».
 - **Achtung:** Lade nicht dieselben Ausgaben doppelt, zum Beispiel das Haushaltsbuch **und** den Bank-Export für denselben Zeitraum. Das Dashboard warnt dich in diesem Fall.
 
-Zum Ausprobieren gibt es **erfundene Beispieldaten** unter [`beispieldaten/beispiel-haushalt.xlsx`](beispieldaten/beispiel-haushalt.xlsx). Auf der Startseite lädst du sie mit «Beispieldaten ansehen».
+Zum Ausprobieren gibt es **erfundene Beispieldaten** im Sheet-Format unter [`beispieldaten/beispiel-finanzen.xlsx`](beispieldaten/beispiel-finanzen.xlsx). Auf der Startseite lädst du sie mit «Beispieldaten ansehen».
 
 ## Datenschutz – so ist er umgesetzt
 

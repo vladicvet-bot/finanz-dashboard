@@ -32,6 +32,7 @@
   const STANDARD_EINST = {
     kategorieProzent: 30, minSparquote: 10, grosseAusgabe: 500, umbuchungen: "Umbuchung",
     regeln: window.Analyse.STANDARD_REGELN,
+    clerSaldo: "", clerEinzahlung: "",
   };
   const umbuchungsListe = () => String(zustand.einst.umbuchungen || "").split(",");
 
@@ -50,7 +51,10 @@
   const zustand = {
     quelle: null,          // { geladenAm, beispiel }
     daten: null,           // Ergebnis von Analyse.berechne
-    buchungen: [],
+    buchungen: [],         // echte Buchungen (ohne Fixkosten)
+    fixkosten: [],         // Posten aus dem Blatt «Fixkosten»
+    budgetsKonto: {},      // Budget pro Topf (Konto) aus dem Blatt «Übersicht»
+    kontoFilter: "alle",   // "alle" oder ein Kontoname
     monat: null,           // ausgewählter Monat "JJJJ-MM"
     zeitraum: "12",        // "12" oder "alle"
     katModus: "monat",     // "monat" oder "zeitraum"
@@ -85,13 +89,29 @@
     let alle = beispiel || zustand.quelle?.beispiel ? [] : [...zustand.buchungen];
     const zeilenText = [];
     let geladen = 0, fehler = false;
+    let neueFixkosten = beispiel || zustand.quelle?.beispiel ? [] : zustand.fixkosten;
+    let neueBudgets = beispiel || zustand.quelle?.beispiel ? {} : zustand.budgetsKonto;
 
     for (const { name, buffer } of dateien) {
       try {
-        const zeilen = await window.TabellenLeser.leseDatei(name, buffer);
-        const e = window.Analyse.buchungenAusTabelle(zeilen, name);
+        const blaetter = await window.TabellenLeser.leseDatei(name, buffer);
+        const e = window.Analyse.ausArbeitsmappe(blaetter, name);
+        let t;
+        if (e.typ === "sheet") {
+          // Finanz-Sheet: ersetzt die Sheet-Buchungen im selben Zeitraum
+          if (e.von) alle = alle.filter(b => !(b.quelle === "sheet" && b.datum >= e.von && b.datum <= e.bis));
+          alle = alle.concat(e.buchungen);
+          if (e.fixkosten.length) neueFixkosten = e.fixkosten;
+          if (Object.keys(e.budgets).length) neueBudgets = e.budgets;
+          t = `✓ ${name}: ${e.anzahlAusgaben} Ausgaben, ${e.anzahlEinnahmen} Einnahmen, ${e.fixkosten.length} Fixkosten-Posten`;
+          if (e.von) t += ` · ${Format.datum(e.von)} – ${Format.datum(e.bis)}`;
+          if (e.uebersprungen) t += ` · ${e.uebersprungen} Zeilen ohne Datum/Betrag übersprungen`;
+          zeilenText.push(t);
+          geladen++;
+          continue;
+        }
         alle = alle.filter(b => !(b.konto === e.konto && b.datum >= e.von && b.datum <= e.bis)).concat(e.buchungen);
-        let t = `✓ ${name}: ${e.buchungen.length} Buchungen · ${e.konto} · ${Format.datum(e.von)} – ${Format.datum(e.bis)}`;
+        t = `✓ ${name}: ${e.buchungen.length} Buchungen · ${e.konto} · ${Format.datum(e.von)} – ${Format.datum(e.bis)}`;
         const n = e.uebersprungen;
         if (n) t += ` · ${n} ${n === 1 ? "Zeile" : "Zeilen"} ohne Datum/Betrag übersprungen`;
         const fehlend = e.fehlendeSpalten.map(s => NAMEN[s]).filter(Boolean);
@@ -108,13 +128,17 @@
 
     alle.forEach((b, i) => { b.nr = i; });
     zustand.quelle = { geladenAm: new Date().toISOString(), beispiel };
+    zustand.fixkosten = neueFixkosten;
+    zustand.budgetsKonto = neueBudgets;
+    zustand.kontoFilter = "alle";
     setzeBuchungen(alle, true);
 
     if (beispiel) zeilenText.push("Das sind erfundene Beispieldaten.");
     else if (!speichern()) zeilenText.push("Die Daten konnten auf diesem Gerät nicht gespeichert werden (privates Surfen?). Das Dashboard funktioniert trotzdem.");
     const konten = zustand.daten.konten;
-    if (konten.includes("Haushaltsbuch") && konten.length > 1) {
-      zeilenText.push("Achtung: Haushaltsbuch und Bank-Export sind gleichzeitig geladen. Dieselben Ausgaben könnten doppelt zählen. Nicht benötigte Konten kannst du unter «Einstellungen und Daten» entfernen.");
+    const quellen = new Set(zustand.buchungen.map(b => b.quelle === "sheet" ? "sheet" : b.konto === "Haushaltsbuch" ? "hb" : "bank"));
+    if (quellen.size > 1) {
+      zeilenText.push("Achtung: Verschiedene Quellen (Finanz-Sheet, Haushaltsbuch, Bank-Export) sind gleichzeitig geladen. Dieselben Ausgaben könnten doppelt zählen. Nicht benötigte Konten kannst du unter «Einstellungen und Daten» entfernen.");
     }
     const offen = zustand.buchungen.filter(b => b.kategorie === "Nicht zugeordnet").length;
     if (offen) zeilenText.push(`${offen} Buchungen ohne Kategorie – Regeln dafür kannst du unter «Einstellungen und Daten» ergänzen.`);
@@ -123,13 +147,37 @@
 
   function speichern() {
     const daten = zustand.buchungen.map(({ umbuchung, ...rest }) => rest);
-    return speicherSchreiben(SPEICHER_DATEN, { version: 2, geladenAm: zustand.quelle.geladenAm, buchungen: daten });
+    return speicherSchreiben(SPEICHER_DATEN, {
+      version: 3, geladenAm: zustand.quelle.geladenAm, buchungen: daten, fixkosten: zustand.fixkosten,
+      budgetsKonto: zustand.budgetsKonto,
+    });
   }
 
   function setzeBuchungen(buchungen, neuerMonat) {
+    const A = window.Analyse;
     zustand.buchungen = buchungen;
-    window.Analyse.zuordnen(buchungen, zustand.einst.regeln);
-    zustand.daten = window.Analyse.berechne(buchungen, umbuchungsListe());
+    zustand.einst.budgetsKonto = zustand.budgetsKonto;
+
+    // Monate: von der ersten Buchung bis heute (bzw. letzte Buchung)
+    const daten = buchungen.map(b => b.datum).sort();
+    const heute = new Date().toISOString().slice(0, 7);
+    let von = daten.length ? A.monatVon(daten[0]) : heute;
+    let bis = daten.length ? A.monatVon(daten[daten.length - 1]) : heute;
+    if (zustand.fixkosten.length && bis < heute && buchungen.every(b => b.quelle === "sheet")) bis = heute;
+    const monate = [];
+    for (let m = von; monate.length < 600; m = A.naechsterMonat(m)) { monate.push(m); if (m === bis) break; }
+
+    const fix = A.fixBuchungen(zustand.fixkosten, monate);
+    let alle = buchungen.concat(fix);
+    A.zuordnen(alle, zustand.einst.regeln);
+
+    // Konto-Filter
+    zustand.alleKonten = [...new Set(alle.map(b => b.konto))].sort();
+    if (zustand.kontoFilter !== "alle" && !zustand.alleKonten.includes(zustand.kontoFilter)) zustand.kontoFilter = "alle";
+    if (zustand.kontoFilter !== "alle") alle = alle.filter(b => b.konto === zustand.kontoFilter);
+    if (!alle.length) alle = buchungen.concat(fix);
+
+    zustand.daten = A.berechne(alle, umbuchungsListe());
     if (neuerMonat || !zustand.daten.proMonat[zustand.monat]) {
       zustand.monat = letzterVollerMonat(zustand.daten.monate);
     }
@@ -172,8 +220,11 @@
   function alles() {
     statusZeile();
     monatsauswahl();
+    kontoFilterAnzeigen();
     kennzahlen();
     warnungsliste();
+    budgetKarte();
+    fixkostenKarten();
     kategorien();
     zahlungsmittel();
     buchungsTabelle();
@@ -183,10 +234,11 @@
 
   function statusZeile() {
     const q = zustand.quelle;
+    const istSheet = zustand.buchungen.some(b => b.quelle === "sheet") || zustand.fixkosten.length;
     const konten = zustand.daten.konten;
     $("status").textContent = q.beispiel
       ? "Beispieldaten (erfunden)"
-      : `${konten.length === 1 ? konten[0] : `${konten.length} Konten`} · auf diesem Gerät gespeichert`;
+      : `${istSheet ? "Finanz-Sheet" : konten.length === 1 ? konten[0] : `${konten.length} Konten`} · auf diesem Gerät gespeichert`;
     $("datei-text").textContent = "Datei hinzufügen";
     kontenListe();
     offeneBuchungen();
@@ -235,7 +287,26 @@
     const vm = d.monate.slice(Math.max(0, i - 3), i).map(m => d.proMonat[m]);
     const schnittAus = vm.length ? vm.reduce((s, x) => s + x.ausgaben, 0) / vm.length : null;
 
-    const kacheln = [
+    const fixTeil = {
+      titel: "Davon Fixkosten",
+      wert: Format.chf(pm.fixAusgaben),
+      vergleich: pm.ausgaben ? `${Math.round(pm.fixAusgaben / pm.ausgaben * 100)} % der Ausgaben · Variabel ${Format.chf(pm.ausgaben - pm.fixAusgaben)}` : "",
+    };
+    const kacheln = zustand.kontoFilter !== "alle" ? [
+      {
+        titel: `Ausgaben ${zustand.kontoFilter}`, wert: Format.chf(pm.ausgaben),
+        vergleich: schnittAus != null ? `${veraenderung(pm.ausgaben, schnittAus, false) || "–"} vs. Ø 3 Monate` : "",
+      },
+      fixTeil,
+      {
+        titel: "Variable Ausgaben", wert: Format.chf(pm.ausgaben - pm.fixAusgaben),
+        vergleich: `${pm.buchungen.filter(b => !b.fix && b.ausgabe).length} Zahlungen`,
+      },
+      {
+        titel: "Hinweis", wert: "Nur Ausgaben",
+        vergleich: "Einnahmen und Sparquote siehst du bei «Alle Konten».",
+      },
+    ] : [
       {
         titel: "Einnahmen", wert: Format.chf(pm.einnahmen),
         vergleich: vor ? `${veraenderung(pm.einnahmen, vor.einnahmen, true) || "–"} vs. Vormonat` : "",
@@ -251,13 +322,13 @@
           ? `Sparquote ${vergleich(Format.prozent(pm.sparquote), pm.sparquote * 100 < zustand.einst.minSparquote ? "schlechter" : "besser")}`
           : "keine Einnahmen",
       },
-      {
+      d.hatKontostand ? {
         titel: "Kontostand Monatsende",
         wert: pm.saldoEnde != null ? Format.chf(pm.saldoEnde) : "–",
         vergleich: vor && vor.saldoEnde != null && pm.saldoEnde != null
           ? `${vergleich(`${pm.saldoEnde >= vor.saldoEnde ? "+" : "−"}${Format.chf(Math.abs(pm.saldoEnde - vor.saldoEnde))}`, pm.saldoEnde >= vor.saldoEnde ? "besser" : "schlechter")} vs. Vormonat`
           : "",
-      },
+      } : fixTeil,
     ];
 
     $("kennzahlen").innerHTML = kacheln.map(k => `
@@ -279,7 +350,8 @@
   const STUFEN_TEXT = { kritisch: "Achtung", warnung: "Warnung", info: "Info", gut: "OK" };
 
   function warnungsliste() {
-    const liste = window.Analyse.warnungen(zustand.daten, zustand.monat, zustand.einst);
+    const liste = window.Analyse.warnungen(zustand.daten, zustand.monat,
+      { ...zustand.einst, nurAusgaben: zustand.kontoFilter !== "alle" });
     const reihenfolge = { kritisch: 0, warnung: 1, info: 2, gut: 3 };
     liste.sort((a, b) => reihenfolge[a.stufe] - reihenfolge[b.stufe]);
     $("warnungen").innerHTML = liste.map(w => `
@@ -316,7 +388,9 @@
       const eintraege = Object.entries(pm.nachKategorie).sort((a, b) => b[1] - a[1]);
       $("kat-fuss").textContent = pm.umbuchungRaus || pm.umbuchungRein
         ? `Nicht mitgezählt: Umbuchungen (${Format.chf(pm.umbuchungRaus + pm.umbuchungRein)})` : "";
+      const nurFix = new Set(Object.keys(pm.nachKategorie).filter(k => !(k in pm.variabelNachKategorie)));
       balkenliste(el, eintraege, pm.ausgaben, (kat, betrag) => {
+        if (nurFix.has(kat)) return " · Fixkosten";
         const schnitt = window.Analyse.durchschnittVorher(d, zustand.monat, kat);
         if (schnitt == null) return "";
         if (schnitt === 0) return " · neu diesen Monat";
@@ -345,20 +419,123 @@
       name => ` · ${anzahl[name]} ${anzahl[name] === 1 ? "Zahlung" : "Zahlungen"}`);
   }
 
+  // ---------- Konto-Filter ----------
+
+  function kontoFilterAnzeigen() {
+    const konten = zustand.alleKonten || [];
+    const el = $("konto-filter");
+    el.hidden = konten.length < 2;
+    if (el.hidden) return;
+    el.innerHTML = ["alle", ...konten].map(k =>
+      `<button type="button" data-konto="${esc(k)}" aria-pressed="${k === zustand.kontoFilter}">${k === "alle" ? "Alle Konten" : esc(k)}</button>`).join("");
+  }
+
+  // ---------- Budget ----------
+
+  function budgetKarte() {
+    const alleBudgets = zustand.budgetsKonto || {};
+    const karte = $("karte-budget");
+    const namen = Object.keys(alleBudgets).filter(k => zustand.kontoFilter === "alle" || k === zustand.kontoFilter);
+    const budgets = Object.fromEntries(namen.map(k => [k, alleBudgets[k]]));
+    karte.hidden = !namen.length;
+    if (!namen.length) return;
+    const pm = zustand.daten.proMonat[zustand.monat];
+    let summeB = 0, summeI = 0;
+    $("budget").innerHTML = namen.map(kat => {
+      const budget = budgets[kat];
+      const ist = pm.variabelNachKonto[kat] || 0;
+      summeB += budget; summeI += ist;
+      const anteil = Math.min(100, (ist / budget) * 100);
+      const ueber = ist > budget;
+      return `<li class="${ueber ? "ueber" : ""}">
+        <span class="name">${esc(kat)}</span>
+        <span class="betrag">${Format.chf(ist)}</span>
+        <div class="spur" aria-hidden="true"><div class="fuellung" data-breite="${Math.max(1, anteil).toFixed(1)}"></div></div>
+        <span class="detail">von ${Format.chf(budget)} · ${ueber ? `<span class="hoch">${Format.chf(ist - budget)} überschritten</span>` : `noch ${Format.chf(budget - ist)} übrig`}</span>
+      </li>`;
+    }).join("");
+    for (const f of $("budget").querySelectorAll("[data-breite]")) f.style.width = `${f.dataset.breite}%`;
+    $("budget-summe").textContent = `Total ${Format.chf(summeI)} von ${Format.chf(summeB)}`;
+  }
+
+  // ---------- Fixkosten, Fälligkeiten, Cler-Topf ----------
+
+  function fixkostenKarten() {
+    const A = window.Analyse;
+    const fk = zustand.fixkosten.filter(f => zustand.kontoFilter === "alle" || f.konto === zustand.kontoFilter);
+    for (const id of ["karte-fix", "karte-faellig", "karte-cler"]) $(id).hidden = !zustand.fixkosten.length;
+    if (!zustand.fixkosten.length) return;
+
+    // 1) Fixkosten pro Monat nach Gruppe (ohne Einnahmen/Überweisungen)
+    const nachGruppe = {};
+    let einnahmen = 0, sparen = 0;
+    for (const f of fk) {
+      const g = String(f.gruppe).toLowerCase();
+      if (/^einnahme/.test(g)) { einnahmen += f.proMonat; continue; }
+      if (/überweisung|ueberweisung|umbuchung/.test(g)) continue;
+      if (/sparen|invest/.test(g)) { sparen += f.proMonat; continue; }
+      nachGruppe[f.gruppe] = (nachGruppe[f.gruppe] || 0) + f.proMonat;
+    }
+    const eintraege = Object.entries(nachGruppe).sort((a, b) => b[1] - a[1]);
+    const total = eintraege.reduce((s, e) => s + e[1], 0);
+    balkenliste($("fix-gruppen"), eintraege, total || 1, null);
+    for (const d of $("fix-gruppen").querySelectorAll(".detail")) d.textContent = d.textContent.replace("der Ausgaben", "der Fixkosten");
+    $("fix-summe").textContent = `${Format.chf(total)} pro Monat`;
+    const teile = [];
+    if (einnahmen) teile.push(`Feste Einnahmen ${Format.chf(einnahmen)}`);
+    if (sparen) teile.push(`Sparen & Investieren ${Format.chf(sparen)}`);
+    $("fix-fuss").textContent = teile.length ? `${teile.join(" · ")} pro Monat. Jahresbeträge sind auf 12 Monate verteilt.` : "Jahresbeträge sind auf 12 Monate verteilt.";
+
+    // 2) Fälligkeiten der nächsten 3 Monate (ab dem gewählten Monat)
+    const heute = new Date().toISOString().slice(0, 7);
+    const ab = zustand.monat < heute ? heute : zustand.monat;
+    const faellig = A.faelligkeiten(fk, ab, 3);
+    $("faellig").innerHTML = faellig.map(f => `
+      <li>
+        <div class="faellig-kopf"><strong>${Format.monat(f.monat)}</strong><span>${f.summe ? Format.chf(f.summe) : "–"}</span></div>
+        ${f.posten.length ? `<ul>${f.posten.map(p => `<li><span>${esc(p.posten)}${p.ueberCler ? ' <em class="marke">Cler</em>' : ""}</span><span>${Format.chf(p.betrag)}</span></li>`).join("")}</ul>`
+          : '<p class="leer">Keine Jahres-/Quartalsrechnungen fällig.</p>'}
+      </li>`).join("");
+
+    // 3) Cler-Topf: Bedarf und Prognose
+    const bedarf = A.clerBedarfProMonat(zustand.fixkosten);
+    const saldo = parseFloat(String(zustand.einst.clerSaldo || (zustand.quelle?.beispiel ? "2400" : "")).replace(/['’\s]/g, "").replace(",", "."));
+    const einzahlungEingabe = parseFloat(String(zustand.einst.clerEinzahlung).replace(/['’\s]/g, "").replace(",", "."));
+    const einzahlung = isFinite(einzahlungEingabe) ? einzahlungEingabe : bedarf;
+    const box = $("cler-inhalt");
+    let html = `<p class="cler-bedarf">Nötige Einzahlung: <strong>${Format.chf(bedarf)}</strong> pro Monat
+      <span>(alle Posten «Über Cler», auf 12 Monate verteilt)</span></p>`;
+    if (isFinite(saldo)) {
+      const verlauf = A.clerPrognose(zustand.fixkosten, saldo, einzahlung, heute, 12);
+      const tiefst = verlauf.reduce((min, v) => v.saldo < min.saldo ? v : min, verlauf[0]);
+      const ok = tiefst.saldo >= 0;
+      html += `<div class="cler-status ${ok ? "ok" : "knapp"}">${ok ? ICONS.gut : ICONS.kritisch}
+        <div><strong>${ok ? "Der Cler-Topf reicht für die nächsten 12 Monate." : "Achtung: Der Cler-Topf reicht nicht!"}</strong>
+        <span>Tiefster Stand ${Format.chf(tiefst.saldo)} Ende ${Format.monat(tiefst.monat)} · gerechnet mit ${Format.chf(einzahlung)} Einzahlung pro Monat.</span></div></div>
+        <ul class="cler-verlauf">${verlauf.filter(v => v.raus).map(v =>
+          `<li><span>${Format.monatKurz(v.monat)}</span><span>−${Format.chf(v.raus)}</span><span class="${v.saldo < 0 ? "hoch" : ""}">${Format.chf(v.saldo)}</span></li>`).join("")}</ul>`;
+    } else {
+      html += `<p class="hinweis">Trag unter «Einstellungen und Daten» den aktuellen Kontostand des Cler-Kontos ein. Dann rechnet das Dashboard aus, ob der Topf für die nächsten 12 Monate reicht.</p>`;
+    }
+    box.innerHTML = html;
+  }
+
   // ---------- Tabelle ----------
 
   function buchungsTabelle() {
     const suche = $("suche").value.trim().toLowerCase();
     let liste, titel;
     if (suche) {
-      liste = zustand.buchungen.filter(b =>
+      liste = zustand.buchungen.filter(b => !b.fix &&
         [b.kategorie, b.beschreibung, b.zahlungsmittel, Format.datum(b.datum)].join(" ").toLowerCase().includes(suche));
       titel = `Suche: ${liste.length} Treffer`;
     } else {
-      liste = zustand.daten.proMonat[zustand.monat].buchungen;
+      liste = zustand.daten.proMonat[zustand.monat].buchungen.filter(b => !b.fix);
       titel = `Buchungen ${Format.monat(zustand.monat)}`;
     }
     $("buchungen-titel").textContent = titel;
+    // Saldo-Spalte nur zeigen, wenn es Saldo-Werte gibt
+    document.querySelector(".tabelle").classList.toggle("ohne-saldo", !liste.some(b => b.saldo != null));
     liste = [...liste].sort((a, b) => a.datum < b.datum ? 1 : a.datum > b.datum ? -1 : b.nr - a.nr).slice(0, 500);
     $("buchungen").innerHTML = liste.map(b => {
       const betrag = b.umbuchung
@@ -369,7 +546,7 @@
       return `<tr>
         <td>${Format.datum(b.datum).slice(0, 6)}<span class="jahr">${b.datum.slice(0, 4)}</span></td>
         <td>${esc(b.kategorie)}</td>
-        <td>${esc(b.beschreibung)}<span class="unterzeile">${esc(b.kategorie)}</span></td>
+        <td>${esc(b.beschreibung)}${b.notiz ? `<span class="notiz">${esc(b.notiz)}</span>` : ""}<span class="unterzeile">${esc(b.kategorie)}</span></td>
         <td>${esc(b.zahlungsmittel)}</td>
         <td class="zahl">${betrag}</td>
         <td class="zahl">${b.saldo != null ? Format.betrag(b.saldo) : ""}</td>
@@ -489,7 +666,9 @@
       options: opt2,
     });
 
-    // 3) Kontostand-Verlauf
+    // 3) Kontostand-Verlauf (nur wenn Saldo-Daten vorhanden)
+    $("karte-saldo").hidden = !d.hatKontostand;
+    if (!d.hatKontostand) { if (diagramme["chart-saldo"]) { diagramme["chart-saldo"].destroy(); delete diagramme["chart-saldo"]; } return; }
     const opt3 = grundOptionen();
     opt3.scales.y.ticks.callback = v => Format.zahl(v);
     opt3.plugins.tooltip.callbacks = {
@@ -524,6 +703,10 @@
     $("e-spar").value = zustand.einst.minSparquote;
     $("e-gross").value = zustand.einst.grosseAusgabe;
     $("e-umb").value = zustand.einst.umbuchungen;
+    $("e-cler-saldo").value = zustand.einst.clerSaldo ?? "";
+    $("e-cler-ein").value = zustand.einst.clerEinzahlung ?? "";
+    $("e-cler-ein").placeholder = zustand.fixkosten.length
+      ? Format.betrag(window.Analyse.clerBedarfProMonat(zustand.fixkosten)) : "";
     if (document.activeElement !== $("e-regeln")) $("e-regeln").value = zustand.einst.regeln;
   }
 
@@ -532,7 +715,8 @@
     const el = $("konten");
     const proKonto = {};
     for (const b of zustand.buchungen) {
-      const k = proKonto[b.konto] ||= { anzahl: 0, von: b.datum, bis: b.datum };
+      const name = b.quelle === "sheet" ? "Finanz-Sheet" : b.konto;
+      const k = proKonto[name] ||= { anzahl: 0, von: b.datum, bis: b.datum };
       k.anzahl++;
       if (b.datum < k.von) k.von = b.datum;
       if (b.datum > k.bis) k.bis = b.datum;
@@ -540,7 +724,7 @@
     el.innerHTML = Object.entries(proKonto).map(([name, k]) => `
       <li>
         <div><strong>${esc(name)}</strong>
-        <span>${k.anzahl} Buchungen · ${Format.datum(k.von)} – ${Format.datum(k.bis)}</span></div>
+        <span>${k.anzahl} Buchungen · ${Format.datum(k.von)} – ${Format.datum(k.bis)}${name === "Finanz-Sheet" && zustand.fixkosten.length ? ` · ${zustand.fixkosten.length} Fixkosten-Posten` : ""}</span></div>
         ${zustand.quelle.beispiel ? "" : `<button class="knopf knopf-klein" type="button" data-entfernen="${esc(name)}">Entfernen</button>`}
       </li>`).join("");
   }
@@ -571,6 +755,8 @@
       grosseAusgabe: lese("e-gross", STANDARD_EINST.grosseAusgabe, 50, 100000),
       umbuchungen: $("e-umb").value.split(",").map(s => s.trim()).filter(Boolean).join(", "),
       regeln: $("e-regeln").value,
+      clerSaldo: $("e-cler-saldo").value.trim(),
+      clerEinzahlung: $("e-cler-ein").value.trim(),
     };
     speicherSchreiben(SPEICHER_EINST, zustand.einst);
     setzeBuchungen(zustand.buchungen, false); // neu rechnen
@@ -603,9 +789,9 @@
 
   $("beispiel").addEventListener("click", async () => {
     try {
-      const antwort = await fetch("beispieldaten/beispiel-haushalt.xlsx");
+      const antwort = await fetch("beispieldaten/beispiel-finanzen.xlsx");
       if (!antwort.ok) throw new Error();
-      await ladeDateien([{ name: "beispiel-haushalt.xlsx", buffer: await antwort.arrayBuffer() }], true);
+      await ladeDateien([{ name: "beispiel-finanzen.xlsx", buffer: await antwort.arrayBuffer() }], true);
     } catch {
       melde("Die Beispieldaten konnten nicht geladen werden. (Beim direkten Öffnen der Datei vom Computer geht das nicht – bitte über die Webadresse öffnen.)", true);
     }
@@ -634,13 +820,20 @@
     });
   }
 
+  $("konto-filter").addEventListener("click", e => {
+    const knopf = e.target.closest("[data-konto]");
+    if (!knopf) return;
+    zustand.kontoFilter = knopf.dataset.konto;
+    setzeBuchungen(zustand.buchungen, false);
+  });
+
   $("suche").addEventListener("input", buchungsTabelle);
-  for (const id of ["e-kat", "e-spar", "e-gross", "e-umb", "e-regeln"]) $(id).addEventListener("change", einstellungAendern);
+  for (const id of ["e-kat", "e-spar", "e-gross", "e-umb", "e-regeln", "e-cler-saldo", "e-cler-ein"]) $(id).addEventListener("change", einstellungAendern);
 
   $("loeschen").addEventListener("click", () => {
     if (!confirm("Gespeicherte Finanzdaten von diesem Gerät löschen?\n\nDeine Excel-Datei selbst bleibt unverändert.")) return;
     speicherLoeschen(SPEICHER_DATEN);
-    zustand.daten = null; zustand.quelle = null; zustand.buchungen = [];
+    zustand.daten = null; zustand.quelle = null; zustand.buchungen = []; zustand.fixkosten = []; zustand.budgetsKonto = {};
     for (const id of Object.keys(diagramme)) { diagramme[id].destroy(); delete diagramme[id]; }
     $("dashboard").hidden = true;
     $("start").hidden = false;
@@ -654,8 +847,9 @@
     if (!knopf) return;
     const konto = knopf.dataset.entfernen;
     if (!confirm(`Alle Buchungen von «${konto}» von diesem Gerät entfernen?`)) return;
-    const rest = zustand.buchungen.filter(b => b.konto !== konto);
-    if (!rest.length) { $("loeschen").click(); return; }
+    const rest = zustand.buchungen.filter(b => konto === "Finanz-Sheet" ? b.quelle !== "sheet" : (b.konto !== konto || b.quelle === "sheet"));
+    if (konto === "Finanz-Sheet") zustand.fixkosten = [];
+    if (!rest.length && !zustand.fixkosten.length) { $("loeschen").click(); return; }
     rest.forEach((b, i) => { b.nr = i; });
     setzeBuchungen(rest, false);
     speichern();
@@ -676,8 +870,11 @@
   // ---------- Start ----------
 
   const gespeichert = speicherLesen(SPEICHER_DATEN);
-  if (gespeichert && Array.isArray(gespeichert.buchungen) && gespeichert.buchungen.length) {
+  if (gespeichert && Array.isArray(gespeichert.buchungen) &&
+      (gespeichert.buchungen.length || (gespeichert.fixkosten || []).length)) {
     zustand.quelle = { beispiel: false, geladenAm: gespeichert.geladenAm || gespeichert.quelle?.geladenAm };
+    zustand.fixkosten = gespeichert.fixkosten || [];
+    zustand.budgetsKonto = gespeichert.budgetsKonto || {};
     setzeBuchungen(gespeichert.buchungen, true);
   }
 

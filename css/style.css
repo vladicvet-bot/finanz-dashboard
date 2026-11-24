@@ -347,3 +347,31 @@ textarea {
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+/* ---------- Konto-Filter, Budget, Fixkosten, Cler ---------- */
+
+.konto-filter { flex-wrap: wrap; }
+@media (max-width: 480px) { .steuerung .konto-filter { width: 100%; } .steuerung .konto-filter button { flex: 1; } }
+.balken.budget small { font-weight: 400; color: var(--text-leise); }
+.balken.budget li.ueber .fuellung { background: var(--kritisch); }
+.tabelle .notiz { display: block; font-size: 0.8125rem; color: var(--text-leise); }
+
+.faellig { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.faellig-kopf { display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; }
+.faellig ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+.faellig ul li { display: flex; justify-content: space-between; gap: 12px; font-size: 0.875rem; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.faellig .leer { margin: 4px 0 0; font-size: 0.875rem; color: var(--text-leise); }
+.marke { font-style: normal; font-size: 0.6875rem; font-weight: 700; padding: 1px 6px; border-radius: 6px; background: var(--flaeche-2); color: var(--text-2); border: 1px solid var(--rand); vertical-align: 1px; }
+
+.cler-bedarf { margin: 0 0 12px; }
+.cler-bedarf span { display: block; font-size: 0.8125rem; color: var(--text-leise); }
+.cler-status { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; background: var(--flaeche-2); margin-bottom: 12px; }
+.cler-status strong { display: block; }
+.cler-status span { font-size: 0.875rem; color: var(--text-2); }
+.cler-status.ok svg { color: var(--gut); }
+.cler-status.knapp svg { color: var(--kritisch); }
+.cler-verlauf { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+.cler-verlauf li { display: grid; grid-template-columns: 1fr auto auto; gap: 16px; padding: 4px 0; border-bottom: 1px solid var(--linie); }
+.cler-verlauf li span:nth-child(2) { color: var(--text-2); }
+.cler-verlauf .hoch { color: var(--kritisch); font-weight: 600; }
+.tabelle.ohne-saldo th:nth-child(6), .tabelle.ohne-saldo td:nth-child(6) { display: none; }

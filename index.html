@@ -57,7 +57,7 @@
           <label class="knopf knopf-primaer knopf-gross" for="datei">Dateien wählen</label>
           <button class="knopf knopf-gross" type="button" id="beispiel">Beispieldaten ansehen</button>
         </div>
-        <p class="klein">Haushaltsbuch mit den Spalten Datum, Kategorie, Beschreibung, Einnahmen (CHF), Ausgaben (CHF), Zahlungsmittel, Saldo – oder Bank-Export (z.B. Raiffeisen CSV). Mehrere Dateien gleichzeitig sind möglich.</p>
+        <p class="klein">Finanz-Sheet als Excel (Blätter «Ausgaben», «Einnahmen», «Fixkosten»), Haushaltsbuch mit den Spalten Datum, Kategorie, Beschreibung, Einnahmen (CHF), Ausgaben (CHF), Zahlungsmittel, Saldo – oder Bank-Export (z.B. Raiffeisen CSV). Mehrere Dateien gleichzeitig sind möglich.</p>
       </div>
     </section>
 
@@ -73,6 +73,7 @@
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>
           </button>
         </div>
+        <div class="umschalter konto-filter" id="konto-filter" role="group" aria-label="Konto auswählen" hidden></div>
         <div class="umschalter" role="group" aria-label="Zeitraum der Diagramme">
           <button type="button" data-zeitraum="12" aria-pressed="true">12 Monate</button>
           <button type="button" data-zeitraum="alle" aria-pressed="false">Alles</button>
@@ -99,6 +100,15 @@
           <p class="hinweis">Tippe auf einen Monat, um ihn auszuwählen.</p>
         </article>
 
+        <article class="karte" id="karte-budget" hidden>
+          <div class="karte-kopf">
+            <h2>Budget variabel</h2>
+            <span class="karte-zusatz" id="budget-summe"></span>
+          </div>
+          <ul class="balken budget" id="budget"></ul>
+          <p class="hinweis">Budget pro Topf aus deinem Sheet (Übersicht). Gezählt werden die variablen Ausgaben dieses Kontos im gewählten Monat.</p>
+        </article>
+
         <article class="karte">
           <div class="karte-kopf">
             <h2>Ausgaben nach Kategorie</h2>
@@ -123,7 +133,33 @@
           <div class="diagramm"><canvas id="chart-sparquote" role="img" aria-label="Liniendiagramm Sparquote pro Monat"></canvas></div>
         </article>
 
-        <article class="karte">
+        <article class="karte" id="karte-fix" hidden>
+          <div class="karte-kopf">
+            <h2>Fixkosten nach Gruppe</h2>
+            <span class="karte-zusatz" id="fix-summe"></span>
+          </div>
+          <ul class="balken" id="fix-gruppen"></ul>
+          <p class="hinweis" id="fix-fuss"></p>
+        </article>
+
+        <article class="karte" id="karte-faellig" hidden>
+          <div class="karte-kopf">
+            <h2>Fällige Rechnungen</h2>
+            <span class="karte-zusatz">nächste 3 Monate</span>
+          </div>
+          <ul class="faellig" id="faellig"></ul>
+          <p class="hinweis">Ohne monatliche Fixkosten. «Cler» = wird über den Cler-Topf bezahlt.</p>
+        </article>
+
+        <article class="karte" id="karte-cler" hidden>
+          <div class="karte-kopf">
+            <h2>Cler-Topf</h2>
+            <span class="karte-zusatz">Rücklagen für Rechnungen</span>
+          </div>
+          <div id="cler-inhalt"></div>
+        </article>
+
+        <article class="karte" id="karte-saldo">
           <div class="karte-kopf">
             <h2>Kontostand-Verlauf</h2>
             <span class="karte-zusatz" id="saldo-quelle"></span>
@@ -167,9 +203,19 @@
               <label>Einzelausgaben ab
                 <span class="eingabe">CHF <input type="number" id="e-gross" min="50" max="100000" step="50" inputmode="numeric"></span>
                 melden (ausser wiederkehrende wie Miete)</label>
-              <label>Diese Kategorien sind <strong>Umbuchungen</strong> (z.B. aufs Sparkonto) und zählen nicht als Einnahme oder Ausgabe:
+              <label>Diese Kategorien/Gruppen <strong>nicht mitzählen</strong> – z.B. Umbuchungen oder Geschäftliches:
                 <input type="text" id="e-umb" class="breit-eingabe" placeholder="Umbuchung, Sparkonto" autocomplete="off" autocapitalize="off">
                 <span class="klein-hinweis">Mehrere mit Komma trennen.</span></label>
+            </div>
+            <div class="einst-block">
+              <h3>Cler-Topf</h3>
+              <div class="einst-raster">
+                <label>Aktueller Kontostand Cler
+                  <span class="eingabe">CHF <input type="number" id="e-cler-saldo" step="0.05" inputmode="decimal"></span></label>
+                <label>Einzahlung pro Monat
+                  <span class="eingabe">CHF <input type="number" id="e-cler-ein" step="0.05" inputmode="decimal"></span>
+                  <span class="klein-hinweis">Leer lassen = nötiger Betrag aus den Fixkosten.</span></label>
+              </div>
             </div>
             <div class="einst-block">
               <h3>Geladene Konten</h3>

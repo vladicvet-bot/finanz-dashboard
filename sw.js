@@ -7,7 +7,7 @@
  * Nach Änderungen am Code: VERSION erhöhen, damit Geräte die neue
  * Version laden.
  */
-const VERSION = "finanz-dashboard-v3";
+const VERSION = "finanz-dashboard-v5";
 const DATEIEN = [
   "./",
   "index.html",
@@ -21,7 +21,7 @@ const DATEIEN = [
   "icons/apple-touch-icon.png",
   "icons/icon-192.png",
   "icons/icon-512.png",
-  "beispieldaten/beispiel-haushalt.xlsx",
+  "beispieldaten/beispiel-finanzen.xlsx",
 ];
 
 self.addEventListener("install", event => {

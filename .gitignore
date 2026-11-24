@@ -18,7 +18,7 @@
 
 # Einzige Ausnahme: die erfundenen Beispieldaten
 !beispieldaten/
-!beispieldaten/beispiel-haushalt.xlsx
+!beispieldaten/beispiel-finanzen.xlsx
 
 # Systemdateien
 .DS_Store
