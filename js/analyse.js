@@ -138,7 +138,10 @@
     map[key] = (map[key] || 0) + wert;
   }
 
-  function berechne(buchungen) {
+  // umbuchungen: Liste von Kategorienamen, die nur Geld verschieben
+  // (z.B. aufs Sparkonto). Sie zählen nicht als Einnahme oder Ausgabe.
+  function berechne(buchungen, umbuchungen = []) {
+    const istUmbuchung = new Set(umbuchungen.map(k => k.trim().toLowerCase()).filter(Boolean));
     const sortiert = [...buchungen].sort((a, b) => a.datum < b.datum ? -1 : a.datum > b.datum ? 1 : a.nr - b.nr);
     const erster = monatVon(sortiert[0].datum);
     const letzter = monatVon(sortiert[sortiert.length - 1].datum);
@@ -150,7 +153,7 @@
       monate.push(m);
       proMonat[m] = {
         monat: m, einnahmen: 0, ausgaben: 0, nachKategorie: {}, einnahmenNachKategorie: {},
-        nachZahlungsmittel: {}, buchungen: [], saldoEnde: null,
+        nachZahlungsmittel: {}, buchungen: [], saldoEnde: null, umbuchungRaus: 0, umbuchungRein: 0,
       };
       if (m === letzter || monate.length > 600) break;
     }
@@ -159,7 +162,16 @@
     let laufend = 0;
     for (const b of sortiert) {
       const pm = proMonat[monatVon(b.datum)];
+      b.umbuchung = istUmbuchung.has(b.kategorie.toLowerCase());
       pm.buchungen.push(b);
+      laufend += b.einnahme - b.ausgabe;
+      if (hatSaldo) { if (b.saldo != null) pm.saldoEnde = b.saldo; }
+      else pm.saldoEnde = laufend; // ohne Saldo-Spalte: selbst aufsummieren
+      if (b.umbuchung) {
+        pm.umbuchungRaus += b.ausgabe;
+        pm.umbuchungRein += b.einnahme;
+        continue;
+      }
       pm.einnahmen += b.einnahme;
       pm.ausgaben += b.ausgabe;
       if (b.ausgabe) {
@@ -167,9 +179,6 @@
         summiere(pm.nachZahlungsmittel, b.zahlungsmittel, b.ausgabe);
       }
       if (b.einnahme) summiere(pm.einnahmenNachKategorie, b.kategorie, b.einnahme);
-      laufend += b.einnahme - b.ausgabe;
-      if (hatSaldo) { if (b.saldo != null) pm.saldoEnde = b.saldo; }
-      else pm.saldoEnde = laufend; // ohne Saldo-Spalte: selbst aufsummieren
     }
 
     // Monate ohne Saldo übernehmen den Wert vom Vormonat
@@ -266,21 +275,19 @@
     // Ungewöhnlich grosse Einzelausgaben (wiederkehrende wie Miete ausgenommen)
     const frueher = vm.flatMap(m => daten.proMonat[m].buchungen);
     for (const b of pm.buchungen) {
-      if (b.ausgabe < einst.grosseAusgabe) continue;
+      if (b.umbuchung || b.ausgabe < einst.grosseAusgabe) continue;
       const wiederkehrend = frueher.some(f => f.kategorie === b.kategorie && f.ausgabe >= b.ausgabe * 0.8);
       if (wiederkehrend) continue;
       liste.push({ stufe: "warnung", titel: "Grosse Einzelausgabe",
         text: `${fmt.chf(b.ausgabe)} · ${b.beschreibung || b.kategorie} (${fmt.datum(b.datum)})` });
     }
 
-    // Kontostand gesunken?
-    const i = daten.monate.indexOf(monat);
-    if (i > 0) {
-      const vorher = daten.proMonat[daten.monate[i - 1]].saldoEnde;
-      if (vorher != null && pm.saldoEnde != null && pm.saldoEnde < vorher - einst.grosseAusgabe) {
-        liste.push({ stufe: "info", titel: "Kontostand gesunken",
-          text: `${fmt.chf(vorher - pm.saldoEnde)} weniger als Ende Vormonat.` });
-      }
+    if (pm.umbuchungRaus || pm.umbuchungRein) {
+      const teile = [];
+      if (pm.umbuchungRaus) teile.push(`${fmt.chf(pm.umbuchungRaus)} weggebucht`);
+      if (pm.umbuchungRein) teile.push(`${fmt.chf(pm.umbuchungRein)} hergebucht`);
+      liste.push({ stufe: "info", titel: "Umbuchungen",
+        text: `${teile.join(", ")} – zählen nicht als Einnahmen oder Ausgaben.` });
     }
 
     if (!liste.some(w => w.stufe !== "info")) {

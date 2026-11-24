@@ -108,6 +108,7 @@
             </div>
           </div>
           <ul class="balken" id="kategorien"></ul>
+          <p class="hinweis" id="kat-fuss"></p>
         </article>
 
         <article class="karte">
@@ -166,6 +167,9 @@
               <label>Einzelausgaben ab
                 <span class="eingabe">CHF <input type="number" id="e-gross" min="50" max="100000" step="50" inputmode="numeric"></span>
                 melden (ausser wiederkehrende wie Miete)</label>
+              <label>Diese Kategorien sind <strong>Umbuchungen</strong> (z.B. aufs Sparkonto) und zählen nicht als Einnahme oder Ausgabe:
+                <input type="text" id="e-umb" class="breit-eingabe" placeholder="Umbuchung, Sparkonto" autocomplete="off" autocapitalize="off">
+                <span class="klein-hinweis">Mehrere mit Komma trennen.</span></label>
             </div>
             <div class="daten-info">
               <p id="speicher-info"></p>

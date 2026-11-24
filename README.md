@@ -34,6 +34,7 @@ Die erste Zeile enthält diese Spaltennamen (die Reihenfolge ist egal):
 - Beträge sind **positive Zahlen**: Einnahmen in die eine Spalte, Ausgaben in die andere.
 - Das Datum darf als Excel-Datum oder als Text wie `24.11.2026` oder `24.11.26` eingetragen sein.
 - Eine Titelzeile über der Kopfzeile und leere Zeilen stören nicht.
+- **Umbuchungen** (zum Beispiel aufs oder vom Sparkonto) bekommen die Kategorie **«Umbuchung»**. Sie zählen dann nicht als Einnahme oder Ausgabe, und die Sparquote stimmt. Unter «Einstellungen und Daten» kannst du weitere Kategorien als Umbuchung festlegen, zum Beispiel `Sparkonto, Säule 3a`.
 - Unterstützt werden `.xlsx` und `.csv`. Eine alte `.xls`-Datei speicherst du in Excel mit «Speichern unter» als `.xlsx`. Aus Numbers exportierst du mit «Ablage → Exportieren → Excel».
 
 Zum Ausprobieren gibt es **erfundene Beispieldaten** unter [`beispieldaten/beispiel-haushalt.xlsx`](beispieldaten/beispiel-haushalt.xlsx). Auf der Startseite lädst du sie mit «Beispieldaten ansehen».
@@ -80,7 +81,7 @@ Online gestellt wird **nur der Programmcode** dieser Seite. Deine Finanzdaten li
 
 **Wichtig:** Bei einem **privaten** Repository gibt es GitHub Pages nur mit einem kostenpflichtigen Abo (GitHub Pro). Du hast zwei Möglichkeiten:
 
-- **A) Repository öffentlich machen.** Das ist gratis und unbedenklich, weil darin nur Code und erfundene Beispieldaten liegen. Vorher solltest du kurz prüfen, dass wirklich keine echte Datei im Repository ist (`git ls-files` zeigt alle Dateien).
+- **A) Repository öffentlich machen** (gewählt). Das ist gratis und unbedenklich, weil darin nur Code und erfundene Beispieldaten liegen. Vorher solltest du kurz prüfen, dass wirklich keine echte Datei im Repository ist (`git ls-files` zeigt alle Dateien). Auf GitHub: **Settings → General → ganz unten «Danger Zone» → Change visibility → Make public**.
 - **B) GitHub Pro abonnieren** und das Repository privat lassen. Die Webseite selbst ist auch dann öffentlich erreichbar, sie enthält aber keine Daten.
 
 So schaltest du die Seite ein:

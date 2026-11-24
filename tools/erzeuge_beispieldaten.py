@@ -79,6 +79,11 @@ for jahr, monat in MONATE:
     if monat == 6:
         einnahme(tag(jahr, monat, 14), "Rückerstattung", "Rückerstattung Krankenkasse", 186.30, "Überweisung")
 
+    # --- Umbuchung aufs Sparkonto (ist KEINE Ausgabe) ---
+    ausgabe(tag(jahr, monat, 26), "Umbuchung", "Übertrag aufs Sparkonto", 1_000.00, "Dauerauftrag")
+    if (jahr, monat) == (2026, 8):
+        einnahme(tag(jahr, monat, 2), "Umbuchung", "Übertrag vom Sparkonto (Ferien)", 2_000.00, "Überweisung")
+
     # --- Fixkosten ---
     for kat, text, von, bis, t, zm in FIXKOSTEN:
         ausgabe(tag(jahr, monat, t), kat, text, betrag(von, bis), zm)

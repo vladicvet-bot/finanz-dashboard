@@ -15,10 +15,10 @@
   const monatKurz = new Intl.DateTimeFormat("de-CH", { month: "short", timeZone: "UTC" });
 
   const Format = {
-    chf: v => chfFormat.format(v),
+    chf: v => (v < 0 ? "−" : "") + chfFormat.format(Math.abs(v)),
     zahl: v => zahlFormat.format(v),
     betrag: v => betragFormat.format(v), // ohne "CHF", für die Tabelle
-    prozent: v => `${(v * 100).toFixed(1).replace(".0", "")} %`,
+    prozent: v => `${v < 0 ? "−" : ""}${Math.abs(v * 100).toFixed(1).replace(".0", "")} %`,
     datum: iso => `${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(0, 4)}`,
     monat: m => monatLang.format(new Date(`${m}-01T00:00:00Z`)),
     monatKurz: m => `${monatKurz.format(new Date(`${m}-01T00:00:00Z`)).replace(".", "")} ${m.slice(2, 4)}`,
@@ -29,7 +29,8 @@
 
   const SPEICHER_DATEN = "finanzDashboard.daten.v1";
   const SPEICHER_EINST = "finanzDashboard.einstellungen.v1";
-  const STANDARD_EINST = { kategorieProzent: 30, minSparquote: 10, grosseAusgabe: 500 };
+  const STANDARD_EINST = { kategorieProzent: 30, minSparquote: 10, grosseAusgabe: 500, umbuchungen: "Umbuchung" };
+  const umbuchungsListe = () => String(zustand.einst.umbuchungen || "").split(",");
 
   function speicherLesen(key) {
     try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
@@ -99,7 +100,7 @@
 
   function setzeBuchungen(buchungen, neuerMonat) {
     zustand.buchungen = buchungen;
-    zustand.daten = window.Analyse.berechne(buchungen);
+    zustand.daten = window.Analyse.berechne(buchungen, umbuchungsListe());
     if (neuerMonat || !zustand.daten.proMonat[zustand.monat]) {
       zustand.monat = letzterVollerMonat(zustand.daten.monate);
     }
@@ -189,7 +190,7 @@
   function veraenderung(jetzt, vorher, mehrIstGut) {
     if (vorher == null || vorher === 0) return "";
     const diff = (jetzt - vorher) / Math.abs(vorher);
-    if (Math.abs(diff) < 0.005) return "gleich wie";
+    if (Math.abs(diff) < 0.005) return "±0 %";
     const richtung = (diff > 0) === mehrIstGut ? "besser" : "schlechter";
     return vergleich(`${diff > 0 ? "+" : "−"}${Math.abs(Math.round(diff * 100))} %`, richtung);
   }
@@ -281,6 +282,8 @@
     if (zustand.katModus === "monat") {
       const pm = d.proMonat[zustand.monat];
       const eintraege = Object.entries(pm.nachKategorie).sort((a, b) => b[1] - a[1]);
+      $("kat-fuss").textContent = pm.umbuchungRaus || pm.umbuchungRein
+        ? `Nicht mitgezählt: Umbuchungen (${Format.chf(pm.umbuchungRaus + pm.umbuchungRein)})` : "";
       balkenliste(el, eintraege, pm.ausgaben, (kat, betrag) => {
         const schnitt = window.Analyse.durchschnittVorher(d, zustand.monat, kat);
         if (schnitt == null) return "";
@@ -293,6 +296,7 @@
     } else {
       const bereich = bereichMonate();
       const z = window.Analyse.zeitraum(d, bereich);
+      $("kat-fuss").textContent = "";
       const eintraege = Object.entries(z.nachKategorie)
         .map(([k, v]) => [k, v / bereich.length]).sort((a, b) => b[1] - a[1]);
       balkenliste(el, eintraege, z.ausgaben / bereich.length, () => " · pro Monat");
@@ -325,9 +329,11 @@
     $("buchungen-titel").textContent = titel;
     liste = [...liste].sort((a, b) => a.datum < b.datum ? 1 : a.datum > b.datum ? -1 : b.nr - a.nr).slice(0, 500);
     $("buchungen").innerHTML = liste.map(b => {
-      const betrag = b.einnahme
-        ? `<span class="plus">+${Format.betrag(b.einnahme)}</span>`
-        : `−${Format.betrag(b.ausgabe)}`;
+      const betrag = b.umbuchung
+        ? `<span class="umb">${b.einnahme ? "+" : "−"}${Format.betrag(b.einnahme || b.ausgabe)}</span>`
+        : b.einnahme
+          ? `<span class="plus">+${Format.betrag(b.einnahme)}</span>`
+          : `−${Format.betrag(b.ausgabe)}`;
       return `<tr>
         <td>${Format.datum(b.datum).slice(0, 6)}<span class="jahr">${b.datum.slice(0, 4)}</span></td>
         <td>${esc(b.kategorie)}</td>
@@ -485,6 +491,7 @@
     $("e-kat").value = zustand.einst.kategorieProzent;
     $("e-spar").value = zustand.einst.minSparquote;
     $("e-gross").value = zustand.einst.grosseAusgabe;
+    $("e-umb").value = zustand.einst.umbuchungen;
   }
 
   function einstellungAendern() {
@@ -496,9 +503,10 @@
       kategorieProzent: lese("e-kat", STANDARD_EINST.kategorieProzent, 5, 500),
       minSparquote: lese("e-spar", STANDARD_EINST.minSparquote, 0, 90),
       grosseAusgabe: lese("e-gross", STANDARD_EINST.grosseAusgabe, 50, 100000),
+      umbuchungen: $("e-umb").value.split(",").map(s => s.trim()).filter(Boolean).join(", "),
     };
     speicherSchreiben(SPEICHER_EINST, zustand.einst);
-    kennzahlen(); warnungsliste(); kategorien(); zeichneDiagramme();
+    setzeBuchungen(zustand.buchungen, false); // neu rechnen
   }
 
   // ---------- Bedienung ----------
@@ -560,7 +568,7 @@
   }
 
   $("suche").addEventListener("input", buchungsTabelle);
-  for (const id of ["e-kat", "e-spar", "e-gross"]) $(id).addEventListener("change", einstellungAendern);
+  for (const id of ["e-kat", "e-spar", "e-gross", "e-umb"]) $(id).addEventListener("change", einstellungAendern);
 
   $("loeschen").addEventListener("click", () => {
     if (!confirm("Gespeicherte Finanzdaten von diesem Gerät löschen?\n\nDeine Excel-Datei selbst bleibt unverändert.")) return;
