@@ -34,7 +34,17 @@ Am besten liest das Dashboard dein Finanz-Sheet (Google Sheets oder Excel) mit d
 Aus dem Blatt **Übersicht** wird nur die Tabelle «Budget variabel» (Topf · Budget) gelesen. Alles andere, auch der «Jahresplan», berechnet das Dashboard selbst.
 
 Damit zeigt das Dashboard zusätzlich:
-- **Fixkosten nach Gruppe.** Jahres- und Quartalsbeträge werden auf 12 Monate verteilt. Gruppe «Einnahme» zählt als feste Einnahme (zum Beispiel der Lohn), «Sparen & Investieren» als gespart, und «Überweisung» zählt nicht mit, weil es nur eine Umbuchung ist.
+- **Fixkosten nach Gruppe.** «Pro Monat» rechnet das Dashboard immer selbst aus (Betrag ÷ Teiler: monatlich 1, vierteljährlich 3, halbjährlich 6, jährlich 12, alle 3 Jahre 36). So gilt es:
+  - «Einnahme» zählt als feste Einnahme, zum Beispiel der Lohn und der 13. Monatslohn.
+  - «Sparen & Investieren» zählt als gespart. **Ausnahme:** Rücklagen wie Ferien oder Weiterbildung zählen nicht, weil sie später ausgegeben werden.
+  - «Überweisung» ist eine Umbuchung zwischen eigenen Konten.
+  - **Interne Einzahlungen:** Steht eine Überweisung (zum Beispiel Privat → Gem. Konto) beim anderen Konto nochmals als «Einnahme», erkennt das Dashboard das am gleichen Betrag und zählt sie im Total nur einmal.
+  - **Planwerte** wie «Pikettdienst» zählen nicht, weil das Tatsächliche im Blatt Einnahmen steht.
+  - Die Stichwörter für Rücklagen und Planwerte kannst du unter «Einstellungen und Daten» anpassen.
+- **Zwei Sichten:**
+  - **Alle Konten** ist der ganze Haushalt: interne Überweisungen heben sich auf, und Geschäftliches («nicht mitzählen») bleibt draussen.
+  - **Ein Konto** (Topf) zeigt es wie die Tabelle «Töpfe» im Sheet: **Einnahmen · Fix & Sparen · Variabel · Übrig**.
+- **Kennzahlen aus deinem Sheet**, zum Beispiel Kreditkarte Schulden oder Limite, so wie sie beim Herunterladen berechnet waren.
 - **Fällige Rechnungen** der nächsten 3 Monate, gemäss der Spalte «Fällig» (zum Beispiel `Feb, Mai, Aug, Nov`).
 - **Cler-Topf:** Wie viel muss monatlich einbezahlt werden, und reicht der Topf für die nächsten 12 Monate? Dafür trägst du den aktuellen Cler-Kontostand unter «Einstellungen und Daten» ein.
 - **Budget variabel pro Topf** (= Konto, z.B. Privat und Gem. Konto). Das Budget liest das Dashboard aus der Tabelle «Budget variabel» (Spalten `Topf · Budget`) im Blatt **Übersicht**. Was ausgegeben wurde, rechnet es für jeden Monat selbst aus den variablen Ausgaben dieses Kontos.

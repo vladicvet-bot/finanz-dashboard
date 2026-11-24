@@ -33,6 +33,8 @@
     kategorieProzent: 30, minSparquote: 10, grosseAusgabe: 500, umbuchungen: "Umbuchung",
     regeln: window.Analyse.STANDARD_REGELN,
     clerSaldo: "", clerEinzahlung: "",
+    ignorierePosten: "Pikett",               // Planwerte, die anderswo tatsächlich erfasst werden
+    ruecklagen: "Ferien, Weiterbildung",     // «Sparen & Investieren», das später ausgegeben wird
   };
   const umbuchungsListe = () => String(zustand.einst.umbuchungen || "").split(",");
 
@@ -54,6 +56,7 @@
     buchungen: [],         // echte Buchungen (ohne Fixkosten)
     fixkosten: [],         // Posten aus dem Blatt «Fixkosten»
     budgetsKonto: {},      // Budget pro Topf (Konto) aus dem Blatt «Übersicht»
+    kennzahlen: null,      // Kennzahlen aus dem Blatt «Übersicht»
     kontoFilter: "alle",   // "alle" oder ein Kontoname
     monat: null,           // ausgewählter Monat "JJJJ-MM"
     zeitraum: "12",        // "12" oder "alle"
@@ -91,6 +94,7 @@
     let geladen = 0, fehler = false;
     let neueFixkosten = beispiel || zustand.quelle?.beispiel ? [] : zustand.fixkosten;
     let neueBudgets = beispiel || zustand.quelle?.beispiel ? {} : zustand.budgetsKonto;
+    let neueKennzahlen = beispiel || zustand.quelle?.beispiel ? null : zustand.kennzahlen;
 
     for (const { name, buffer } of dateien) {
       try {
@@ -103,6 +107,7 @@
           alle = alle.concat(e.buchungen);
           if (e.fixkosten.length) neueFixkosten = e.fixkosten;
           if (Object.keys(e.budgets).length) neueBudgets = e.budgets;
+          if (e.kennzahlen && e.kennzahlen.werte.length) neueKennzahlen = e.kennzahlen;
           t = `✓ ${name}: ${e.anzahlAusgaben} Ausgaben, ${e.anzahlEinnahmen} Einnahmen, ${e.fixkosten.length} Fixkosten-Posten`;
           if (e.von) t += ` · ${Format.datum(e.von)} – ${Format.datum(e.bis)}`;
           if (e.uebersprungen) t += ` · ${e.uebersprungen} Zeilen ohne Datum/Betrag übersprungen`;
@@ -130,6 +135,7 @@
     zustand.quelle = { geladenAm: new Date().toISOString(), beispiel };
     zustand.fixkosten = neueFixkosten;
     zustand.budgetsKonto = neueBudgets;
+    zustand.kennzahlen = neueKennzahlen;
     zustand.kontoFilter = "alle";
     setzeBuchungen(alle, true);
 
@@ -149,8 +155,16 @@
     const daten = zustand.buchungen.map(({ umbuchung, ...rest }) => rest);
     return speicherSchreiben(SPEICHER_DATEN, {
       version: 3, geladenAm: zustand.quelle.geladenAm, buchungen: daten, fixkosten: zustand.fixkosten,
-      budgetsKonto: zustand.budgetsKonto,
+      budgetsKonto: zustand.budgetsKonto, kennzahlen: zustand.kennzahlen,
     });
+  }
+
+  function fixOptionen() {
+    return {
+      ignorieren: zustand.einst.ignorierePosten,
+      ruecklagen: zustand.einst.ruecklagen,
+      nichtMitzaehlen: zustand.einst.umbuchungen,
+    };
   }
 
   function setzeBuchungen(buchungen, neuerMonat) {
@@ -167,17 +181,19 @@
     const monate = [];
     for (let m = von; monate.length < 600; m = A.naechsterMonat(m)) { monate.push(m); if (m === bis) break; }
 
-    const fix = A.fixBuchungen(zustand.fixkosten, monate);
+    // Konto-Filter: «alle» = Haushalts-Sicht, ein Konto = Topf-Sicht wie im Sheet
+    zustand.alleKonten = [...new Set(buchungen.map(b => b.konto).concat(zustand.fixkosten.map(f => f.konto)))].sort();
+    if (zustand.kontoFilter !== "alle" && !zustand.alleKonten.includes(zustand.kontoFilter)) zustand.kontoFilter = "alle";
+    const topfSicht = zustand.kontoFilter !== "alle";
+
+    const fix = A.fixBuchungen(zustand.fixkosten, monate, { ...fixOptionen(), topfSicht });
     let alle = buchungen.concat(fix);
     A.zuordnen(alle, zustand.einst.regeln);
-
-    // Konto-Filter
-    zustand.alleKonten = [...new Set(alle.map(b => b.konto))].sort();
-    if (zustand.kontoFilter !== "alle" && !zustand.alleKonten.includes(zustand.kontoFilter)) zustand.kontoFilter = "alle";
-    if (zustand.kontoFilter !== "alle") alle = alle.filter(b => b.konto === zustand.kontoFilter);
+    if (topfSicht) alle = alle.filter(b => b.konto === zustand.kontoFilter);
     if (!alle.length) alle = buchungen.concat(fix);
 
-    zustand.daten = A.berechne(alle, umbuchungsListe());
+    // In der Topf-Sicht zählt (wie im Sheet) auch «nicht mitzählen» als Abgang
+    zustand.daten = A.berechne(alle, topfSicht ? ["Umbuchung"] : umbuchungsListe());
     if (neuerMonat || !zustand.daten.proMonat[zustand.monat]) {
       zustand.monat = letzterVollerMonat(zustand.daten.monate);
     }
@@ -225,6 +241,7 @@
     warnungsliste();
     budgetKarte();
     fixkostenKarten();
+    sheetKennzahlen();
     kategorien();
     zahlungsmittel();
     buchungsTabelle();
@@ -292,19 +309,24 @@
       wert: Format.chf(pm.fixAusgaben),
       vergleich: pm.ausgaben ? `${Math.round(pm.fixAusgaben / pm.ausgaben * 100)} % der Ausgaben · Variabel ${Format.chf(pm.ausgaben - pm.fixAusgaben)}` : "",
     };
+    const variabel = pm.ausgaben - pm.fixAusgaben;
+    const uebrig = pm.einnahmen - pm.ausgaben;
     const kacheln = zustand.kontoFilter !== "alle" ? [
       {
-        titel: `Ausgaben ${zustand.kontoFilter}`, wert: Format.chf(pm.ausgaben),
-        vergleich: schnittAus != null ? `${veraenderung(pm.ausgaben, schnittAus, false) || "–"} vs. Ø 3 Monate` : "",
+        titel: `Einnahmen ${zustand.kontoFilter}`, wert: Format.chf(pm.einnahmen),
+        vergleich: "inkl. Einzahlungen von anderen Konten",
       },
-      fixTeil,
       {
-        titel: "Variable Ausgaben", wert: Format.chf(pm.ausgaben - pm.fixAusgaben),
+        titel: "Fix & Sparen", wert: Format.chf(pm.fixAusgaben),
+        vergleich: "alles Feste, das dieses Konto verlässt",
+      },
+      {
+        titel: "Variabel", wert: Format.chf(variabel),
         vergleich: `${pm.buchungen.filter(b => !b.fix && b.ausgabe).length} Zahlungen`,
       },
       {
-        titel: "Hinweis", wert: "Nur Ausgaben",
-        vergleich: "Einnahmen und Sparquote siehst du bei «Alle Konten».",
+        titel: "Übrig", wert: Format.chf(uebrig),
+        vergleich: vergleich(uebrig >= 0 ? "im Plus" : "im Minus", uebrig >= 0 ? "besser" : "schlechter") + " · wie «Töpfe» im Sheet",
       },
     ] : [
       {
@@ -351,7 +373,7 @@
 
   function warnungsliste() {
     const liste = window.Analyse.warnungen(zustand.daten, zustand.monat,
-      { ...zustand.einst, nurAusgaben: zustand.kontoFilter !== "alle" });
+      { ...zustand.einst, topfSicht: zustand.kontoFilter !== "alle", topf: zustand.kontoFilter });
     const reihenfolge = { kritisch: 0, warnung: 1, info: 2, gut: 3 };
     liste.sort((a, b) => reihenfolge[a.stufe] - reihenfolge[b.stufe]);
     $("warnungen").innerHTML = liste.map(w => `
@@ -466,30 +488,29 @@
     for (const id of ["karte-fix", "karte-faellig", "karte-cler"]) $(id).hidden = !zustand.fixkosten.length;
     if (!zustand.fixkosten.length) return;
 
-    // 1) Fixkosten pro Monat nach Gruppe (ohne Einnahmen/Überweisungen)
-    const nachGruppe = {};
-    let einnahmen = 0, sparen = 0;
-    for (const f of fk) {
-      const g = String(f.gruppe).toLowerCase();
-      if (/^einnahme/.test(g)) { einnahmen += f.proMonat; continue; }
-      if (/überweisung|ueberweisung|umbuchung/.test(g)) continue;
-      if (/sparen|invest/.test(g)) { sparen += f.proMonat; continue; }
-      nachGruppe[f.gruppe] = (nachGruppe[f.gruppe] || 0) + f.proMonat;
-    }
-    const eintraege = Object.entries(nachGruppe).sort((a, b) => b[1] - a[1]);
+    // 1) Fixkosten pro Monat nach Gruppe
+    const opt = { ...fixOptionen(), topfSicht: zustand.kontoFilter !== "alle" };
+    const ue = A.fixUebersicht(fk, opt);
+    const eintraege = Object.entries(ue.nachGruppe).sort((a, b) => b[1] - a[1]);
     const total = eintraege.reduce((s, e) => s + e[1], 0);
     balkenliste($("fix-gruppen"), eintraege, total || 1, null);
     for (const d of $("fix-gruppen").querySelectorAll(".detail")) d.textContent = d.textContent.replace("der Ausgaben", "der Fixkosten");
     $("fix-summe").textContent = `${Format.chf(total)} pro Monat`;
     const teile = [];
-    if (einnahmen) teile.push(`Feste Einnahmen ${Format.chf(einnahmen)}`);
-    if (sparen) teile.push(`Sparen & Investieren ${Format.chf(sparen)}`);
-    $("fix-fuss").textContent = teile.length ? `${teile.join(" · ")} pro Monat. Jahresbeträge sind auf 12 Monate verteilt.` : "Jahresbeträge sind auf 12 Monate verteilt.";
+    if (ue.einnahmen) teile.push(`Feste Einnahmen ${Format.chf(ue.einnahmen)}`);
+    if (ue.sparen) teile.push(`Sparen & Investieren ${Format.chf(ue.sparen)}`);
+    if (ue.ruecklagen) teile.push(`Rücklagen ${Format.chf(ue.ruecklagen)}`);
+    if (ue.transfer) teile.push(`Überweisungen ${Format.chf(ue.transfer)}`);
+    if (ue.intern && !opt.topfSicht) teile.push(`interne Einzahlungen ${Format.chf(ue.intern)} (nicht doppelt gezählt)`);
+    if (ue.ignoriert) teile.push(`ignorierte Planwerte ${Format.chf(ue.ignoriert)}`);
+    $("fix-fuss").textContent = `${teile.length ? `Ausserdem pro Monat: ${teile.join(" · ")}. ` : ""}Jahresbeträge sind auf 12 Monate verteilt.`;
 
     // 2) Fälligkeiten der nächsten 3 Monate (ab dem gewählten Monat)
     const heute = new Date().toISOString().slice(0, 7);
     const ab = zustand.monat < heute ? heute : zustand.monat;
-    const faellig = A.faelligkeiten(fk, ab, 3);
+    const faellig = A.faelligkeiten(fk, ab, 3, opt);
+    $("faellig-unbekannt").textContent = ue.ohneFaellig
+      ? `${ue.ohneFaellig} ${ue.ohneFaellig === 1 ? "Posten hat" : "Posten haben"} noch keine Fälligkeit und ${ue.ohneFaellig === 1 ? "fehlt" : "fehlen"} hier.` : "";
     $("faellig").innerHTML = faellig.map(f => `
       <li>
         <div class="faellig-kopf"><strong>${Format.monat(f.monat)}</strong><span>${f.summe ? Format.chf(f.summe) : "–"}</span></div>
@@ -518,6 +539,21 @@
       html += `<p class="hinweis">Trag unter «Einstellungen und Daten» den aktuellen Kontostand des Cler-Kontos ein. Dann rechnet das Dashboard aus, ob der Topf für die nächsten 12 Monate reicht.</p>`;
     }
     box.innerHTML = html;
+  }
+
+  // ---------- Kennzahlen aus dem Sheet ----------
+
+  function sheetKennzahlen() {
+    const k = zustand.kennzahlen;
+    $("karte-sheet").hidden = !k || !k.werte.length;
+    if ($("karte-sheet").hidden) return;
+    $("sheet-monat").textContent = k.monat ? `Stand Export: ${Format.monat(k.monat.slice(0, 7))}` : "";
+    $("sheet-werte").innerHTML = k.werte.map(w => {
+      const prozent = /quote|%|anteil/i.test(w.label) && Math.abs(w.wert) <= 1.5;
+      const anzahl = /tage|anzahl|monate|stück/i.test(w.label);
+      const wert = prozent ? Format.prozent(w.wert) : anzahl ? Format.zahl(w.wert) : Format.chf(w.wert);
+      return `<li><span>${esc(w.label)}</span><span class="betrag">${wert}</span></li>`;
+    }).join("");
   }
 
   // ---------- Tabelle ----------
@@ -703,6 +739,8 @@
     $("e-spar").value = zustand.einst.minSparquote;
     $("e-gross").value = zustand.einst.grosseAusgabe;
     $("e-umb").value = zustand.einst.umbuchungen;
+    $("e-ignorieren").value = zustand.einst.ignorierePosten ?? "";
+    $("e-ruecklagen").value = zustand.einst.ruecklagen ?? "";
     $("e-cler-saldo").value = zustand.einst.clerSaldo ?? "";
     $("e-cler-ein").value = zustand.einst.clerEinzahlung ?? "";
     $("e-cler-ein").placeholder = zustand.fixkosten.length
@@ -755,6 +793,8 @@
       grosseAusgabe: lese("e-gross", STANDARD_EINST.grosseAusgabe, 50, 100000),
       umbuchungen: $("e-umb").value.split(",").map(s => s.trim()).filter(Boolean).join(", "),
       regeln: $("e-regeln").value,
+      ignorierePosten: $("e-ignorieren").value.trim(),
+      ruecklagen: $("e-ruecklagen").value.trim(),
       clerSaldo: $("e-cler-saldo").value.trim(),
       clerEinzahlung: $("e-cler-ein").value.trim(),
     };
@@ -828,12 +868,12 @@
   });
 
   $("suche").addEventListener("input", buchungsTabelle);
-  for (const id of ["e-kat", "e-spar", "e-gross", "e-umb", "e-regeln", "e-cler-saldo", "e-cler-ein"]) $(id).addEventListener("change", einstellungAendern);
+  for (const id of ["e-kat", "e-spar", "e-gross", "e-umb", "e-regeln", "e-ignorieren", "e-ruecklagen", "e-cler-saldo", "e-cler-ein"]) $(id).addEventListener("change", einstellungAendern);
 
   $("loeschen").addEventListener("click", () => {
     if (!confirm("Gespeicherte Finanzdaten von diesem Gerät löschen?\n\nDeine Excel-Datei selbst bleibt unverändert.")) return;
     speicherLoeschen(SPEICHER_DATEN);
-    zustand.daten = null; zustand.quelle = null; zustand.buchungen = []; zustand.fixkosten = []; zustand.budgetsKonto = {};
+    zustand.daten = null; zustand.quelle = null; zustand.buchungen = []; zustand.fixkosten = []; zustand.budgetsKonto = {}; zustand.kennzahlen = null;
     for (const id of Object.keys(diagramme)) { diagramme[id].destroy(); delete diagramme[id]; }
     $("dashboard").hidden = true;
     $("start").hidden = false;
@@ -875,6 +915,7 @@
     zustand.quelle = { beispiel: false, geladenAm: gespeichert.geladenAm || gespeichert.quelle?.geladenAm };
     zustand.fixkosten = gespeichert.fixkosten || [];
     zustand.budgetsKonto = gespeichert.budgetsKonto || {};
+    zustand.kennzahlen = gespeichert.kennzahlen || null;
     setzeBuchungen(gespeichert.buchungen, true);
   }
 

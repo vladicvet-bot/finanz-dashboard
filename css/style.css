@@ -375,3 +375,4 @@ textarea {
 .cler-verlauf li span:nth-child(2) { color: var(--text-2); }
 .cler-verlauf .hoch { color: var(--kritisch); font-weight: 600; }
 .tabelle.ohne-saldo th:nth-child(6), .tabelle.ohne-saldo td:nth-child(6) { display: none; }
+.sheet-werte .betrag { color: var(--text); font-weight: 600; }

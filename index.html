@@ -148,7 +148,7 @@
             <span class="karte-zusatz">nächste 3 Monate</span>
           </div>
           <ul class="faellig" id="faellig"></ul>
-          <p class="hinweis">Ohne monatliche Fixkosten. «Cler» = wird über den Cler-Topf bezahlt.</p>
+          <p class="hinweis">Ohne monatliche Fixkosten. «Cler» = wird über den Cler-Topf bezahlt. <span id="faellig-unbekannt"></span></p>
         </article>
 
         <article class="karte" id="karte-cler" hidden>
@@ -157,6 +157,15 @@
             <span class="karte-zusatz">Rücklagen für Rechnungen</span>
           </div>
           <div id="cler-inhalt"></div>
+        </article>
+
+        <article class="karte" id="karte-sheet" hidden>
+          <div class="karte-kopf">
+            <h2>Aus deinem Sheet</h2>
+            <span class="karte-zusatz" id="sheet-monat"></span>
+          </div>
+          <ul class="offen sheet-werte" id="sheet-werte"></ul>
+          <p class="hinweis">Kennzahlen aus dem Blatt Übersicht, so wie sie beim Herunterladen berechnet waren.</p>
         </article>
 
         <article class="karte" id="karte-saldo">
@@ -206,6 +215,16 @@
               <label>Diese Kategorien/Gruppen <strong>nicht mitzählen</strong> – z.B. Umbuchungen oder Geschäftliches:
                 <input type="text" id="e-umb" class="breit-eingabe" placeholder="Umbuchung, Sparkonto" autocomplete="off" autocapitalize="off">
                 <span class="klein-hinweis">Mehrere mit Komma trennen.</span></label>
+            </div>
+            <div class="einst-block">
+              <h3>Fixkosten</h3>
+              <div class="einst-raster">
+                <label>Diese Posten sind nur <strong>Planwerte</strong> und zählen nicht (das Tatsächliche steht bei Einnahmen/Ausgaben):
+                  <input type="text" id="e-ignorieren" class="breit-eingabe" placeholder="z.B. Pikett" autocomplete="off" autocapitalize="off"></label>
+                <label>Diese Posten bei «Sparen &amp; Investieren» sind <strong>Rücklagen</strong> (werden später ausgegeben, zählen nicht als gespart):
+                  <input type="text" id="e-ruecklagen" class="breit-eingabe" placeholder="z.B. Ferien, Weiterbildung" autocomplete="off" autocapitalize="off"></label>
+                <span class="klein-hinweis">Stichwörter mit Komma trennen. Es reicht ein Teil des Posten-Namens.</span>
+              </div>
             </div>
             <div class="einst-block">
               <h3>Cler-Topf</h3>
