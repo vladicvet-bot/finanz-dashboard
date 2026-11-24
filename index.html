@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="de-CH">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!--
+    DATENSCHUTZ-SPERRE (Content-Security-Policy):
+    Der Browser darf nur Dateien von dieser Webseite selbst laden
+    und keine Verbindung zu anderen Servern aufbauen.
+    So kann gar nichts von deinen Daten nach aussen gelangen.
+  -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Finanz-Dashboard</title>
+  <meta name="description" content="Private Haushaltsfinanzen – alles wird lokal im Browser berechnet.">
+  <meta name="theme-color" content="#f6f6f3" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#121211" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Finanzen">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="kopf">
+    <div class="kopf-titel">
+      <h1>Finanzen</h1>
+      <p class="kopf-status" id="status">Keine Datei geladen</p>
+    </div>
+    <div class="kopf-aktionen">
+      <label class="knopf knopf-primaer" for="datei">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 4v11m0-11-4 4m4-4 4 4M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/></svg>
+        <span id="datei-text">Excel öffnen</span>
+      </label>
+      <input type="file" id="datei" class="unsichtbar"
+             accept=".xlsx,.xlsm,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv">
+    </div>
+  </header>
+
+  <div class="meldung" id="meldung" role="status" aria-live="polite" hidden></div>
+
+  <main>
+    <!-- Startseite, solange keine Daten geladen sind -->
+    <section class="start" id="start">
+      <div class="start-karte">
+        <div class="schloss" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+        </div>
+        <h2>Deine Finanzen auf einen Blick</h2>
+        <p>Wähle deine Haushalts-Excel aus. Sie wird <strong>nur auf diesem Gerät</strong> gelesen und berechnet – es wird nichts hochgeladen.</p>
+        <div class="start-knoepfe">
+          <label class="knopf knopf-primaer knopf-gross" for="datei">Excel-Datei wählen</label>
+          <button class="knopf knopf-gross" type="button" id="beispiel">Beispieldaten ansehen</button>
+        </div>
+        <p class="klein">Erwartete Spalten: Datum, Kategorie, Beschreibung, Einnahmen (CHF), Ausgaben (CHF), Zahlungsmittel, Saldo</p>
+      </div>
+    </section>
+
+    <!-- Dashboard -->
+    <section class="dashboard" id="dashboard" hidden>
+      <div class="steuerung">
+        <div class="monatswahl">
+          <button class="knopf knopf-icon" type="button" id="monat-zurueck" aria-label="Vorheriger Monat">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg>
+          </button>
+          <select id="monat" aria-label="Monat wählen"></select>
+          <button class="knopf knopf-icon" type="button" id="monat-vor" aria-label="Nächster Monat">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+        </div>
+        <div class="umschalter" role="group" aria-label="Zeitraum der Diagramme">
+          <button type="button" data-zeitraum="12" aria-pressed="true">12 Monate</button>
+          <button type="button" data-zeitraum="alle" aria-pressed="false">Alles</button>
+        </div>
+      </div>
+
+      <div class="kennzahlen" id="kennzahlen"></div>
+
+      <div class="raster">
+        <article class="karte breit" id="karte-warnungen">
+          <h2>Hinweise</h2>
+          <ul class="warnungen" id="warnungen"></ul>
+        </article>
+
+        <article class="karte breit">
+          <div class="karte-kopf">
+            <h2>Einnahmen und Ausgaben pro Monat</h2>
+            <div class="legende">
+              <span><i class="punkt s1"></i>Einnahmen</span>
+              <span><i class="punkt s2"></i>Ausgaben</span>
+            </div>
+          </div>
+          <div class="diagramm"><canvas id="chart-monate" role="img" aria-label="Balkendiagramm Einnahmen und Ausgaben pro Monat"></canvas></div>
+          <p class="hinweis">Tippe auf einen Monat, um ihn auszuwählen.</p>
+        </article>
+
+        <article class="karte">
+          <div class="karte-kopf">
+            <h2>Ausgaben nach Kategorie</h2>
+            <div class="umschalter klein" role="group" aria-label="Kategorien für">
+              <button type="button" data-kat="monat" aria-pressed="true">Monat</button>
+              <button type="button" data-kat="zeitraum" aria-pressed="false">Ø Zeitraum</button>
+            </div>
+          </div>
+          <ul class="balken" id="kategorien"></ul>
+        </article>
+
+        <article class="karte">
+          <div class="karte-kopf">
+            <h2>Sparquote und Trend</h2>
+            <div class="legende">
+              <span><i class="punkt s1"></i>Sparquote</span>
+              <span><i class="linie s7"></i>Ø 3 Monate</span>
+              <span><i class="linie gestrichelt"></i>Ziel</span>
+            </div>
+          </div>
+          <div class="diagramm"><canvas id="chart-sparquote" role="img" aria-label="Liniendiagramm Sparquote pro Monat"></canvas></div>
+        </article>
+
+        <article class="karte">
+          <div class="karte-kopf">
+            <h2>Kontostand-Verlauf</h2>
+            <span class="karte-zusatz" id="saldo-quelle"></span>
+          </div>
+          <div class="diagramm"><canvas id="chart-saldo" role="img" aria-label="Liniendiagramm Kontostand am Monatsende"></canvas></div>
+        </article>
+
+        <article class="karte">
+          <div class="karte-kopf">
+            <h2>Ausgaben nach Zahlungsmittel</h2>
+            <span class="karte-zusatz" id="zm-zeitraum"></span>
+          </div>
+          <ul class="balken" id="zahlungsmittel"></ul>
+        </article>
+
+        <article class="karte breit">
+          <div class="karte-kopf">
+            <h2 id="buchungen-titel">Buchungen</h2>
+            <input type="search" id="suche" placeholder="Suchen …" aria-label="Buchungen durchsuchen">
+          </div>
+          <div class="tabelle-rahmen">
+            <table class="tabelle">
+              <thead>
+                <tr><th>Datum</th><th>Kategorie</th><th>Beschreibung</th><th>Zahlungsmittel</th><th class="zahl">Betrag CHF</th><th class="zahl">Saldo CHF</th></tr>
+              </thead>
+              <tbody id="buchungen"></tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="karte breit">
+          <details class="einstellungen">
+            <summary><h2>Einstellungen und Daten</h2></summary>
+            <div class="einst-raster">
+              <label>Warnung, wenn eine Kategorie mehr als
+                <span class="eingabe"><input type="number" id="e-kat" min="5" max="500" step="5" inputmode="numeric"> %</span>
+                über dem Ø der letzten 3 Monate liegt</label>
+              <label>Warnung, wenn die Sparquote unter
+                <span class="eingabe"><input type="number" id="e-spar" min="0" max="90" step="1" inputmode="numeric"> %</span>
+                fällt</label>
+              <label>Einzelausgaben ab
+                <span class="eingabe">CHF <input type="number" id="e-gross" min="50" max="100000" step="50" inputmode="numeric"></span>
+                melden (ausser wiederkehrende wie Miete)</label>
+            </div>
+            <div class="daten-info">
+              <p id="speicher-info"></p>
+              <button class="knopf knopf-gefahr" type="button" id="loeschen">Daten von diesem Gerät löschen</button>
+            </div>
+          </details>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer class="fuss">
+    <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+    Deine Daten bleiben auf diesem Gerät. Diese Seite lädt nichts hoch und baut keine Verbindung zu fremden Servern auf.
+  </footer>
+
+  <script src="vendor/chart.umd.min.js"></script>
+  <script src="js/xlsx-reader.js"></script>
+  <script src="js/analyse.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
