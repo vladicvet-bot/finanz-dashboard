@@ -265,7 +265,7 @@
       proMonat[m] = {
         monat: m, einnahmen: 0, ausgaben: 0, nachKategorie: {}, einnahmenNachKategorie: {},
         nachZahlungsmittel: {}, buchungen: [], saldoEnde: null, umbuchungRaus: 0, umbuchungRein: 0,
-        sparen: 0, fixAusgaben: 0, variabelNachKategorie: {},
+        sparen: 0, fixAusgaben: 0, variabelNachKategorie: {}, variabelNachKonto: {},
       };
       if (m === letzter || monate.length > 600) break;
     }
@@ -289,6 +289,7 @@
         else {
           summiere(pm.nachZahlungsmittel, b.zahlungsmittel, b.ausgabe);
           summiere(pm.variabelNachKategorie, b.kategorie, b.ausgabe);
+          summiere(pm.variabelNachKonto, b.konto, b.ausgabe);
         }
       }
       if (b.einnahme) summiere(pm.einnahmenNachKategorie, b.kategorie, b.einnahme);
@@ -412,12 +413,13 @@
         text: `${fmt.chf(b.ausgabe)} · ${b.beschreibung || b.kategorie} (${fmt.datum(b.datum)})` });
     }
 
-    // Budgets überschritten (nur variable Ausgaben)
-    const budgets = einst.budgetsMap || {};
-    for (const [kat, budget] of Object.entries(budgets)) {
-      const ist = pm.variabelNachKategorie[kat] || 0;
+    // Budget pro Topf (Konto) überschritten (nur variable Ausgaben)
+    const budgets = einst.budgetsKonto || {};
+    for (const [topf, budget] of Object.entries(budgets)) {
+      if (!(topf in pm.variabelNachKonto) && einst.nurAusgaben) continue;
+      const ist = pm.variabelNachKonto[topf] || 0;
       if (ist > budget) {
-        liste.push({ stufe: "warnung", titel: `Budget ${kat} überschritten`,
+        liste.push({ stufe: "warnung", titel: `Budget ${topf} überschritten`,
           text: `${fmt.chf(ist)} von ${fmt.chf(budget)} – ${fmt.chf(ist - budget)} zu viel.` });
       }
     }
@@ -456,10 +458,12 @@
     promonat: ["promonat"],
     uebercler: ["übercler", "uebercler"],
     faellig: ["fällig", "faellig", "fälligkeit"],
+    topf: ["topf"],
+    budget: ["budget"],
   };
 
-  function findeKopf(zeilen, pflicht) {
-    for (let i = 0; i < Math.min(zeilen.length, 15); i++) {
+  function findeKopf(zeilen, pflicht, maxZeilen = 15) {
+    for (let i = 0; i < Math.min(zeilen.length, maxZeilen); i++) {
       const namen = (zeilen[i] || []).map(normName);
       const s = {};
       for (const [key, varianten] of Object.entries(SHEET_SPALTEN)) {
@@ -570,6 +574,22 @@
     return liste;
   }
 
+  // Budget pro Topf (= Konto) aus der Tabelle «Budget variabel» im Blatt Übersicht
+  function leseBudgetsAusUebersicht(blatt) {
+    const kopf = blatt && findeKopf(blatt.zeilen, ["topf", "budget"], 80);
+    if (!kopf) return {};
+    const budgets = {};
+    for (let i = kopf.zeile + 1; i < blatt.zeilen.length; i++) {
+      const z = blatt.zeilen[i] || [];
+      const topf = text(z[kopf.s.topf]);
+      if (!topf) break; // Ende der Tabelle
+      if (/^(total|summe|gesamt)/i.test(topf)) continue;
+      const b = zuBetrag(z[kopf.s.budget]);
+      if (b) budgets[topf] = Math.abs(b);
+    }
+    return budgets;
+  }
+
   /*
    * Liest eine Datei (alle Blätter). Erkennt das Sheet-Format; sonst wird
    * das erste Blatt mit erkennbaren Spalten als Haushaltsbuch/Bank-Export gelesen.
@@ -580,12 +600,13 @@
       const aus = leseSheetBuchungen(ausgabenBlatt, "aus");
       const ein = leseSheetBuchungen(blattSuchen(blaetter, "einnahmen"), "ein");
       const fixkosten = leseFixkosten(blattSuchen(blaetter, "fixkosten"));
+      const budgets = leseBudgetsAusUebersicht(blattSuchen(blaetter, "übersicht") || blattSuchen(blaetter, "uebersicht"));
       const buchungen = aus.buchungen.concat(ein.buchungen)
         .sort((a, b) => a.datum < b.datum ? -1 : a.datum > b.datum ? 1 : 0);
       if (!buchungen.length && !fixkosten.length) throw new Error("KEINE_BUCHUNGEN");
       buchungen.forEach((b, i) => { b.nr = i; });
       return {
-        typ: "sheet", buchungen, fixkosten,
+        typ: "sheet", buchungen, fixkosten, budgets,
         anzahlAusgaben: aus.buchungen.length, anzahlEinnahmen: ein.buchungen.length,
         uebersprungen: aus.uebersprungen + ein.uebersprungen,
         von: buchungen.length ? buchungen[0].datum : null,
@@ -670,19 +691,11 @@
     return verlauf;
   }
 
-  // Budgets: Zeilen "Kategorie = Betrag"
-  function leseBudgets(textBudgets) {
-    const b = {};
-    for (const zeile of String(textBudgets || "").split(/\r?\n/)) {
-      const m = zeile.match(/^\s*([^#=:]+?)\s*[=:]\s*([\d'’.,\s]+)\s*$/);
-      if (m) { const v = zuBetrag(m[2]); if (v) b[m[1].trim()] = v; }
-    }
-    return b;
-  }
+
 
   window.Analyse = {
     buchungenAusTabelle, ausArbeitsmappe, zuordnen, berechne, zeitraum, durchschnittVorher, warnungen,
-    fixBuchungen, faelligkeiten, clerBedarfProMonat, clerPrognose, leseBudgets, monatVon, naechsterMonat,
+    fixBuchungen, faelligkeiten, clerBedarfProMonat, clerPrognose, monatVon, naechsterMonat,
     STANDARD_REGELN,
     _test: { zuDatum, zuBetrag, normName },
   };

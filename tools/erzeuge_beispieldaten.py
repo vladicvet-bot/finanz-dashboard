@@ -121,7 +121,19 @@ def kopf(ws, spalten, breiten):
 wb = Workbook()
 ue = wb.active
 ue.title = "Übersicht"
-ue.append(["Übersicht – wird im Sheet berechnet (für das Dashboard nicht nötig)"])
+# Aufbau wie im Finanz-Sheet: oben der Monat, darunter die Bereiche.
+# Das Dashboard liest daraus nur «Budget variabel» (Topf · Budget).
+ue.append(["Monat", "November 2026"])
+ue.append([])
+ue.append(["Budget variabel"])
+ue.append(["Topf", "Budget", "Ausgegeben", "Übrig"])
+for topf, budget in [("Privat", 1200.00), ("Gem. Konto", 1300.00)]:
+    ue.append([topf, budget, None, None])
+ue.append([])
+ue.append(["Töpfe"])
+ue.append(["Topf", "Einnahmen", "Fix & Sparen", "Variabel", "Übrig"])
+ue["A4"].font = Font(bold=True)
+ue["A10"].font = Font(bold=True)
 
 ws = wb.create_sheet("Ausgaben")
 kopf(ws, ["Datum", "Was / Geschäft", "Kategorie", "Betrag CHF", "Konto", "Zahlmittel", "Notiz"], (12, 26, 22, 12, 12, 20, 16))

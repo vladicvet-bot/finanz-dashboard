@@ -32,7 +32,7 @@
   const STANDARD_EINST = {
     kategorieProzent: 30, minSparquote: 10, grosseAusgabe: 500, umbuchungen: "Umbuchung",
     regeln: window.Analyse.STANDARD_REGELN,
-    budgets: "", clerSaldo: "", clerEinzahlung: "",
+    clerSaldo: "", clerEinzahlung: "",
   };
   const umbuchungsListe = () => String(zustand.einst.umbuchungen || "").split(",");
 
@@ -53,6 +53,7 @@
     daten: null,           // Ergebnis von Analyse.berechne
     buchungen: [],         // echte Buchungen (ohne Fixkosten)
     fixkosten: [],         // Posten aus dem Blatt «Fixkosten»
+    budgetsKonto: {},      // Budget pro Topf (Konto) aus dem Blatt «Übersicht»
     kontoFilter: "alle",   // "alle" oder ein Kontoname
     monat: null,           // ausgewählter Monat "JJJJ-MM"
     zeitraum: "12",        // "12" oder "alle"
@@ -89,6 +90,7 @@
     const zeilenText = [];
     let geladen = 0, fehler = false;
     let neueFixkosten = beispiel || zustand.quelle?.beispiel ? [] : zustand.fixkosten;
+    let neueBudgets = beispiel || zustand.quelle?.beispiel ? {} : zustand.budgetsKonto;
 
     for (const { name, buffer } of dateien) {
       try {
@@ -100,6 +102,7 @@
           if (e.von) alle = alle.filter(b => !(b.quelle === "sheet" && b.datum >= e.von && b.datum <= e.bis));
           alle = alle.concat(e.buchungen);
           if (e.fixkosten.length) neueFixkosten = e.fixkosten;
+          if (Object.keys(e.budgets).length) neueBudgets = e.budgets;
           t = `✓ ${name}: ${e.anzahlAusgaben} Ausgaben, ${e.anzahlEinnahmen} Einnahmen, ${e.fixkosten.length} Fixkosten-Posten`;
           if (e.von) t += ` · ${Format.datum(e.von)} – ${Format.datum(e.bis)}`;
           if (e.uebersprungen) t += ` · ${e.uebersprungen} Zeilen ohne Datum/Betrag übersprungen`;
@@ -126,6 +129,7 @@
     alle.forEach((b, i) => { b.nr = i; });
     zustand.quelle = { geladenAm: new Date().toISOString(), beispiel };
     zustand.fixkosten = neueFixkosten;
+    zustand.budgetsKonto = neueBudgets;
     zustand.kontoFilter = "alle";
     setzeBuchungen(alle, true);
 
@@ -145,16 +149,14 @@
     const daten = zustand.buchungen.map(({ umbuchung, ...rest }) => rest);
     return speicherSchreiben(SPEICHER_DATEN, {
       version: 3, geladenAm: zustand.quelle.geladenAm, buchungen: daten, fixkosten: zustand.fixkosten,
+      budgetsKonto: zustand.budgetsKonto,
     });
   }
 
   function setzeBuchungen(buchungen, neuerMonat) {
     const A = window.Analyse;
     zustand.buchungen = buchungen;
-    // Bei den Beispieldaten ein paar erfundene Budgets und einen Cler-Stand zeigen
-    const beispiel = zustand.quelle?.beispiel;
-    zustand.einst.budgetsMap = A.leseBudgets(zustand.einst.budgets ||
-      (beispiel ? "Lebensmittel = 1100\nAuswärts & Kaffee = 300\nFreizeit & Geschenke = 450\nHaushalt & Diverses = 300" : ""));
+    zustand.einst.budgetsKonto = zustand.budgetsKonto;
 
     // Monate: von der ersten Buchung bis heute (bzw. letzte Buchung)
     const daten = buchungen.map(b => b.datum).sort();
@@ -431,16 +433,17 @@
   // ---------- Budget ----------
 
   function budgetKarte() {
-    const budgets = zustand.einst.budgetsMap || {};
+    const alleBudgets = zustand.budgetsKonto || {};
     const karte = $("karte-budget");
-    const namen = Object.keys(budgets);
+    const namen = Object.keys(alleBudgets).filter(k => zustand.kontoFilter === "alle" || k === zustand.kontoFilter);
+    const budgets = Object.fromEntries(namen.map(k => [k, alleBudgets[k]]));
     karte.hidden = !namen.length;
     if (!namen.length) return;
     const pm = zustand.daten.proMonat[zustand.monat];
     let summeB = 0, summeI = 0;
     $("budget").innerHTML = namen.map(kat => {
       const budget = budgets[kat];
-      const ist = pm.variabelNachKategorie[kat] || 0;
+      const ist = pm.variabelNachKonto[kat] || 0;
       summeB += budget; summeI += ist;
       const anteil = Math.min(100, (ist / budget) * 100);
       const ueber = ist > budget;
@@ -700,7 +703,6 @@
     $("e-spar").value = zustand.einst.minSparquote;
     $("e-gross").value = zustand.einst.grosseAusgabe;
     $("e-umb").value = zustand.einst.umbuchungen;
-    if (document.activeElement !== $("e-budgets")) $("e-budgets").value = zustand.einst.budgets || "";
     $("e-cler-saldo").value = zustand.einst.clerSaldo ?? "";
     $("e-cler-ein").value = zustand.einst.clerEinzahlung ?? "";
     $("e-cler-ein").placeholder = zustand.fixkosten.length
@@ -753,7 +755,6 @@
       grosseAusgabe: lese("e-gross", STANDARD_EINST.grosseAusgabe, 50, 100000),
       umbuchungen: $("e-umb").value.split(",").map(s => s.trim()).filter(Boolean).join(", "),
       regeln: $("e-regeln").value,
-      budgets: $("e-budgets").value,
       clerSaldo: $("e-cler-saldo").value.trim(),
       clerEinzahlung: $("e-cler-ein").value.trim(),
     };
@@ -827,12 +828,12 @@
   });
 
   $("suche").addEventListener("input", buchungsTabelle);
-  for (const id of ["e-kat", "e-spar", "e-gross", "e-umb", "e-regeln", "e-budgets", "e-cler-saldo", "e-cler-ein"]) $(id).addEventListener("change", einstellungAendern);
+  for (const id of ["e-kat", "e-spar", "e-gross", "e-umb", "e-regeln", "e-cler-saldo", "e-cler-ein"]) $(id).addEventListener("change", einstellungAendern);
 
   $("loeschen").addEventListener("click", () => {
     if (!confirm("Gespeicherte Finanzdaten von diesem Gerät löschen?\n\nDeine Excel-Datei selbst bleibt unverändert.")) return;
     speicherLoeschen(SPEICHER_DATEN);
-    zustand.daten = null; zustand.quelle = null; zustand.buchungen = []; zustand.fixkosten = [];
+    zustand.daten = null; zustand.quelle = null; zustand.buchungen = []; zustand.fixkosten = []; zustand.budgetsKonto = {};
     for (const id of Object.keys(diagramme)) { diagramme[id].destroy(); delete diagramme[id]; }
     $("dashboard").hidden = true;
     $("start").hidden = false;
@@ -873,6 +874,7 @@
       (gespeichert.buchungen.length || (gespeichert.fixkosten || []).length)) {
     zustand.quelle = { beispiel: false, geladenAm: gespeichert.geladenAm || gespeichert.quelle?.geladenAm };
     zustand.fixkosten = gespeichert.fixkosten || [];
+    zustand.budgetsKonto = gespeichert.budgetsKonto || {};
     setzeBuchungen(gespeichert.buchungen, true);
   }
 

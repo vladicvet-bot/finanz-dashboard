@@ -31,13 +31,13 @@ Am besten liest das Dashboard dein Finanz-Sheet (Google Sheets oder Excel) mit d
 | **Einnahmen** | Datum · Was / Quelle · Art · Betrag CHF · Konto · Notiz |
 | **Fixkosten** | Posten · Gruppe · Rhythmus · Betrag CHF · Pro Monat · Konto · Notiz · Über Cler · Fällig |
 
-Weitere Blätter wie «Übersicht» oder «Jahresplan» werden ignoriert. Das Dashboard rechnet selbst.
+Aus dem Blatt **Übersicht** wird nur die Tabelle «Budget variabel» (Topf · Budget) gelesen. Alles andere, auch der «Jahresplan», berechnet das Dashboard selbst.
 
 Damit zeigt das Dashboard zusätzlich:
 - **Fixkosten nach Gruppe.** Jahres- und Quartalsbeträge werden auf 12 Monate verteilt. Gruppe «Einnahme» zählt als feste Einnahme (zum Beispiel der Lohn), «Sparen & Investieren» als gespart, und «Überweisung» zählt nicht mit, weil es nur eine Umbuchung ist.
 - **Fällige Rechnungen** der nächsten 3 Monate, gemäss der Spalte «Fällig» (zum Beispiel `Feb, Mai, Aug, Nov`).
 - **Cler-Topf:** Wie viel muss monatlich einbezahlt werden, und reicht der Topf für die nächsten 12 Monate? Dafür trägst du den aktuellen Cler-Kontostand unter «Einstellungen und Daten» ein.
-- **Budget variabel** pro Kategorie. Die Budgets trägst du unter «Einstellungen und Daten» ein, zum Beispiel `Lebensmittel = 600`.
+- **Budget variabel pro Topf** (= Konto, z.B. Privat und Gem. Konto). Das Budget liest das Dashboard aus der Tabelle «Budget variabel» (Spalten `Topf · Budget`) im Blatt **Übersicht**. Was ausgegeben wurde, rechnet es für jeden Monat selbst aus den variablen Ausgaben dieses Kontos.
 - **Konto-Filter** «Alle Konten / Gem. Konto / Privat»
 
 **So holst du die Excel-Datei:**
