@@ -57,6 +57,7 @@
     fixkosten: [],         // Posten aus dem Blatt «Fixkosten»
     budgetsKonto: {},      // Budget pro Topf (Konto) aus dem Blatt «Übersicht»
     kennzahlen: null,      // Kennzahlen aus dem Blatt «Übersicht»
+    vermoegen: [],         // Stände aus dem Blatt «Vermögen»
     kontoFilter: "alle",   // "alle" oder ein Kontoname
     monat: null,           // ausgewählter Monat "JJJJ-MM"
     zeitraum: "12",        // "12" oder "alle"
@@ -95,6 +96,7 @@
     let neueFixkosten = beispiel || zustand.quelle?.beispiel ? [] : zustand.fixkosten;
     let neueBudgets = beispiel || zustand.quelle?.beispiel ? {} : zustand.budgetsKonto;
     let neueKennzahlen = beispiel || zustand.quelle?.beispiel ? null : zustand.kennzahlen;
+    let neuesVermoegen = beispiel || zustand.quelle?.beispiel ? [] : zustand.vermoegen;
 
     for (const { name, buffer } of dateien) {
       try {
@@ -108,7 +110,9 @@
           if (e.fixkosten.length) neueFixkosten = e.fixkosten;
           if (Object.keys(e.budgets).length) neueBudgets = e.budgets;
           if (e.kennzahlen && e.kennzahlen.werte.length) neueKennzahlen = e.kennzahlen;
+          if (e.vermoegen.length) neuesVermoegen = e.vermoegen;
           t = `✓ ${name}: ${e.anzahlAusgaben} Ausgaben, ${e.anzahlEinnahmen} Einnahmen, ${e.fixkosten.length} Fixkosten-Posten`;
+          if (e.vermoegen.length) t += `, ${new Set(e.vermoegen.map(v => v.konto)).size} Konten/Anlagen im Vermögen`;
           if (e.von) t += ` · ${Format.datum(e.von)} – ${Format.datum(e.bis)}`;
           if (e.uebersprungen) t += ` · ${e.uebersprungen} Zeilen ohne Datum/Betrag übersprungen`;
           zeilenText.push(t);
@@ -136,6 +140,7 @@
     zustand.fixkosten = neueFixkosten;
     zustand.budgetsKonto = neueBudgets;
     zustand.kennzahlen = neueKennzahlen;
+    zustand.vermoegen = neuesVermoegen;
     zustand.kontoFilter = "alle";
     setzeBuchungen(alle, true);
 
@@ -155,7 +160,7 @@
     const daten = zustand.buchungen.map(({ umbuchung, ...rest }) => rest);
     return speicherSchreiben(SPEICHER_DATEN, {
       version: 3, geladenAm: zustand.quelle.geladenAm, buchungen: daten, fixkosten: zustand.fixkosten,
-      budgetsKonto: zustand.budgetsKonto, kennzahlen: zustand.kennzahlen,
+      budgetsKonto: zustand.budgetsKonto, kennzahlen: zustand.kennzahlen, vermoegen: zustand.vermoegen,
     });
   }
 
@@ -191,6 +196,11 @@
     A.zuordnen(alle, zustand.einst.regeln);
     if (topfSicht) alle = alle.filter(b => b.konto === zustand.kontoFilter);
     if (!alle.length) alle = buchungen.concat(fix);
+    if (!alle.length) {
+      // Nur Vermögen geladen: einen leeren Monat anlegen, damit die Seite funktioniert
+      alle = [{ datum: `${heute}-01`, beschreibung: "", kategorie: "Nicht zugeordnet", kategorieDatei: "", zahlungsmittelDatei: "",
+        konto: "Ohne Konto", einnahme: 0, ausgabe: 0, saldo: null, fix: true, nr: -1 }];
+    }
 
     // In der Topf-Sicht zählt (wie im Sheet) auch «nicht mitzählen» als Abgang
     zustand.daten = A.berechne(alle, topfSicht ? ["Umbuchung"] : umbuchungsListe());
@@ -237,7 +247,8 @@
     statusZeile();
     monatsauswahl();
     kontoFilterAnzeigen();
-    kennzahlen();
+    vermoegenKarten();
+    monatKarte();
     warnungsliste();
     budgetKarte();
     fixkostenKarten();
@@ -296,71 +307,6 @@
     return vergleich(`${diff > 0 ? "+" : "−"}${Math.abs(Math.round(diff * 100))} %`, richtung);
   }
 
-  function kennzahlen() {
-    const d = zustand.daten;
-    const pm = d.proMonat[zustand.monat];
-    const i = d.monate.indexOf(zustand.monat);
-    const vor = i > 0 ? d.proMonat[d.monate[i - 1]] : null;
-    const vm = d.monate.slice(Math.max(0, i - 3), i).map(m => d.proMonat[m]);
-    const schnittAus = vm.length ? vm.reduce((s, x) => s + x.ausgaben, 0) / vm.length : null;
-
-    const fixTeil = {
-      titel: "Davon Fixkosten",
-      wert: Format.chf(pm.fixAusgaben),
-      vergleich: pm.ausgaben ? `${Math.round(pm.fixAusgaben / pm.ausgaben * 100)} % der Ausgaben · Variabel ${Format.chf(pm.ausgaben - pm.fixAusgaben)}` : "",
-    };
-    const variabel = pm.ausgaben - pm.fixAusgaben;
-    const uebrig = pm.einnahmen - pm.ausgaben;
-    const kacheln = zustand.kontoFilter !== "alle" ? [
-      {
-        titel: `Einnahmen ${zustand.kontoFilter}`, wert: Format.chf(pm.einnahmen),
-        vergleich: "inkl. Einzahlungen von anderen Konten",
-      },
-      {
-        titel: "Fix & Sparen", wert: Format.chf(pm.fixAusgaben),
-        vergleich: "alles Feste, das dieses Konto verlässt",
-      },
-      {
-        titel: "Variabel", wert: Format.chf(variabel),
-        vergleich: `${pm.buchungen.filter(b => !b.fix && b.ausgabe).length} Zahlungen`,
-      },
-      {
-        titel: "Übrig", wert: Format.chf(uebrig),
-        vergleich: vergleich(uebrig >= 0 ? "im Plus" : "im Minus", uebrig >= 0 ? "besser" : "schlechter") + " · wie «Töpfe» im Sheet",
-      },
-    ] : [
-      {
-        titel: "Einnahmen", wert: Format.chf(pm.einnahmen),
-        vergleich: vor ? `${veraenderung(pm.einnahmen, vor.einnahmen, true) || "–"} vs. Vormonat` : "",
-      },
-      {
-        titel: "Ausgaben", wert: Format.chf(pm.ausgaben),
-        vergleich: schnittAus != null ? `${veraenderung(pm.ausgaben, schnittAus, false) || "–"} vs. Ø 3 Monate` : "",
-      },
-      {
-        titel: "Gespart",
-        wert: Format.chf(pm.gespart),
-        vergleich: pm.sparquote != null
-          ? `Sparquote ${vergleich(Format.prozent(pm.sparquote), pm.sparquote * 100 < zustand.einst.minSparquote ? "schlechter" : "besser")}`
-          : "keine Einnahmen",
-      },
-      d.hatKontostand ? {
-        titel: "Kontostand Monatsende",
-        wert: pm.saldoEnde != null ? Format.chf(pm.saldoEnde) : "–",
-        vergleich: vor && vor.saldoEnde != null && pm.saldoEnde != null
-          ? `${vergleich(`${pm.saldoEnde >= vor.saldoEnde ? "+" : "−"}${Format.chf(Math.abs(pm.saldoEnde - vor.saldoEnde))}`, pm.saldoEnde >= vor.saldoEnde ? "besser" : "schlechter")} vs. Vormonat`
-          : "",
-      } : fixTeil,
-    ];
-
-    $("kennzahlen").innerHTML = kacheln.map(k => `
-      <div class="kennzahl">
-        <div class="kennzahl-titel">${k.titel}</div>
-        <div class="kennzahl-wert">${k.wert}</div>
-        <div class="kennzahl-vergleich">${k.vergleich}</div>
-      </div>`).join("");
-  }
-
   // ---------- Warnungen ----------
 
   const ICONS = {
@@ -372,15 +318,30 @@
   const STUFEN_TEXT = { kritisch: "Achtung", warnung: "Warnung", info: "Info", gut: "OK" };
 
   function warnungsliste() {
-    const liste = window.Analyse.warnungen(zustand.daten, zustand.monat,
+    const alle = window.Analyse.warnungen(zustand.daten, zustand.monat,
       { ...zustand.einst, topfSicht: zustand.kontoFilter !== "alle", topf: zustand.kontoFilter });
-    const reihenfolge = { kritisch: 0, warnung: 1, info: 2, gut: 3 };
-    liste.sort((a, b) => reihenfolge[a.stufe] - reihenfolge[b.stufe]);
+    const reihenfolge = { kritisch: 0, warnung: 1, gut: 2, info: 3 };
+    alle.sort((a, b) => reihenfolge[a.stufe] - reihenfolge[b.stufe]);
+    // höchstens 3 Hinweise zeigen – die wichtigsten zuerst
+    const wichtig = alle.filter(w => w.stufe !== "info");
+    const liste = (wichtig.length ? wichtig : alle).slice(0, zustand.alleHinweise ? 99 : 3);
+    const mehr = wichtig.length - liste.length;
+    naechsteRechnungen();
     $("warnungen").innerHTML = liste.map(w => `
       <li class="warnung ${w.stufe}">
         ${ICONS[w.stufe]}
         <div><strong><span class="unsichtbar">${STUFEN_TEXT[w.stufe]}: </span>${esc(w.titel)}</strong><span>${esc(w.text)}</span></div>
-      </li>`).join("");
+      </li>`).join("") + (mehr > 0 ? `<li class="mehr"><button type="button" class="link-knopf" id="mehr-hinweise">+ ${mehr} weitere ${mehr === 1 ? "Hinweis" : "Hinweise"} anzeigen</button></li>` : "");
+  }
+
+  function naechsteRechnungen() {
+    const el = $("naechste-rechnungen");
+    if (!zustand.fixkosten.length) { el.innerHTML = ""; return; }
+    const heute = new Date().toISOString().slice(0, 7);
+    const ab = zustand.monat < heute ? heute : zustand.monat;
+    const f = window.Analyse.faelligkeiten(zustand.fixkosten, ab, 2, fixOptionen()).filter(x => x.posten.length);
+    el.innerHTML = f.length ? `<h3 class="unter-titel">Nächste Rechnungen</h3><ul class="kurzliste">${f.flatMap(x =>
+      x.posten.slice(0, 3).map(p => `<li><span>${Format.monatKurz(x.monat)} · ${esc(p.posten)}</span><span>${Format.chf(p.betrag)}</span></li>`)).join("")}</ul>` : "";
   }
 
   // ---------- Balkenlisten ----------
@@ -402,33 +363,161 @@
     for (const f of el.querySelectorAll("[data-breite]")) f.style.width = `${f.dataset.breite}%`;
   }
 
+  // «Wohin geht das Geld?» – die 6 grössten variablen Kategorien, Fixkosten als ein Balken, Rest «Übrige»
   function kategorien() {
     const d = zustand.daten;
-    const el = $("kategorien");
-    if (zustand.katModus === "monat") {
-      const pm = d.proMonat[zustand.monat];
-      const eintraege = Object.entries(pm.nachKategorie).sort((a, b) => b[1] - a[1]);
-      $("kat-fuss").textContent = pm.umbuchungRaus || pm.umbuchungRein
-        ? `Nicht mitgezählt: Umbuchungen (${Format.chf(pm.umbuchungRaus + pm.umbuchungRein)})` : "";
-      const nurFix = new Set(Object.keys(pm.nachKategorie).filter(k => !(k in pm.variabelNachKategorie)));
-      balkenliste(el, eintraege, pm.ausgaben, (kat, betrag) => {
-        if (nurFix.has(kat)) return " · Fixkosten";
-        const schnitt = window.Analyse.durchschnittVorher(d, zustand.monat, kat);
-        if (schnitt == null) return "";
-        if (schnitt === 0) return " · neu diesen Monat";
-        const diff = betrag / schnitt - 1;
-        const hoch = diff * 100 > zustand.einst.kategorieProzent && betrag - schnitt >= 50;
-        const txt = `${diff >= 0 ? "+" : "−"}${Math.abs(Math.round(diff * 100))} % vs. Ø`;
-        return ` · ${hoch ? `<span class="hoch">${txt}</span>` : txt}`;
-      });
-    } else {
-      const bereich = bereichMonate();
-      const z = window.Analyse.zeitraum(d, bereich);
-      $("kat-fuss").textContent = "";
-      const eintraege = Object.entries(z.nachKategorie)
-        .map(([k, v]) => [k, v / bereich.length]).sort((a, b) => b[1] - a[1]);
-      balkenliste(el, eintraege, z.ausgaben / bereich.length, () => " · pro Monat");
+    const pm = d.proMonat[zustand.monat];
+    const eintraege = Object.entries(pm.variabelNachKategorie).sort((a, b) => b[1] - a[1]);
+    let liste = eintraege.slice(0, 6);
+    const rest = eintraege.slice(6).reduce((s, e) => s + e[1], 0);
+    if (rest > 0) liste.push(["Übrige", rest]);
+    if (pm.fixAusgaben > 0) liste.push(["Fixkosten", pm.fixAusgaben]);
+    liste.sort((a, b) => b[1] - a[1]);
+    $("wohin-total").textContent = `Total ${Format.chf(pm.ausgaben)}`;
+    balkenliste($("kategorien"), liste, pm.ausgaben || 1, (kat, betrag) => {
+      if (kat === "Fixkosten") return " · Miete, Versicherungen usw.";
+      if (kat === "Übrige") return "";
+      const schnitt = window.Analyse.durchschnittVorher(d, zustand.monat, kat);
+      if (schnitt == null || schnitt === 0) return "";
+      const diff = betrag / schnitt - 1;
+      const hoch = diff * 100 > zustand.einst.kategorieProzent && betrag - schnitt >= 50;
+      const txt = `${diff >= 0 ? "+" : "−"}${Math.abs(Math.round(diff * 100))} % vs. Ø`;
+      return ` · ${hoch ? `<span class="hoch">${txt}</span>` : txt}`;
+    });
+    for (const li of $("kategorien").children) {
+      if (li.querySelector(".name")?.textContent === "Fixkosten") li.classList.add("fix");
     }
+  }
+
+  // «Dieser Monat»: Einnahmen und Ausgaben (fix + variabel) als Balken, Ergebnis gross
+  function monatKarte() {
+    const d = zustand.daten;
+    const pm = d.proMonat[zustand.monat];
+    const variabel = pm.ausgaben - pm.fixAusgaben;
+    const max = Math.max(pm.einnahmen, pm.ausgaben, 1);
+    const pz = v => `${Math.max(0, (v / max) * 100).toFixed(2)}`;
+    $("monat-titel").textContent = Format.monat(zustand.monat);
+    $("monat-balken").innerHTML = `
+      <div class="zeile">
+        <span class="bez">Einnahmen</span>
+        <div class="spur"><div class="seg s1" data-breite="${pz(pm.einnahmen)}"></div></div>
+        <span class="wert">${Format.chf(pm.einnahmen)}</span>
+      </div>
+      <div class="zeile">
+        <span class="bez">Ausgaben</span>
+        <div class="spur"><div class="seg s2" data-breite="${pz(pm.fixAusgaben)}"></div><div class="seg s2-hell" data-breite="${pz(variabel)}"></div></div>
+        <span class="wert">${Format.chf(pm.ausgaben)}</span>
+      </div>
+      <div class="legende klein">
+        <span><i class="punkt s2"></i>Fix ${Format.chf(pm.fixAusgaben)}</span>
+        <span><i class="punkt s2-hell"></i>Variabel ${Format.chf(variabel)}</span>
+      </div>`;
+    for (const f of $("monat-balken").querySelectorAll("[data-breite]")) f.style.width = `${f.dataset.breite}%`;
+    const gespart = pm.einnahmen - pm.ausgaben;
+    const gut = gespart >= 0;
+    const quote = pm.einnahmen > 0 ? ` · ${Format.prozent(gespart / pm.einnahmen)} der Einnahmen` : "";
+    $("monat-ergebnis").innerHTML = `
+      <span class="ergebnis-bez">${gut ? "Gespart" : "Mehr ausgegeben als eingenommen"}</span>
+      <span class="ergebnis-zahl ${gut ? "gut" : "schlecht"}">${Format.chf(Math.abs(gespart))}</span>
+      <span class="ergebnis-unter">${gut ? quote.replace(" · ", "") : ""}${pm.sparen ? `${gut ? " · " : ""}zusätzlich ${Format.chf(pm.sparen)} fest gespart` : ""}</span>`;
+  }
+
+  // ---------- Vermögen ----------
+
+  function vermoegenKarten() {
+    const A = window.Analyse;
+    const V = A.vermoegenBerechnen(zustand.vermoegen || []);
+    const leer = !V.monate.length;
+    $("vm-leer").hidden = !leer;
+    $("vm-diagramm").hidden = leer;
+    $("karte-verteilung").hidden = leer;
+    if (leer) {
+      $("vm-total").textContent = "–";
+      $("vm-delta").textContent = "";
+      $("vm-stand").textContent = "";
+      $("karte-invest").hidden = true;
+      if (diagramme["chart-vermoegen"]) { diagramme["chart-vermoegen"].destroy(); delete diagramme["chart-vermoegen"]; }
+      return;
+    }
+    // Monat: der gewählte, sonst der letzte davor mit Vermögensdaten
+    const passend = V.monate.filter(m => m <= zustand.monat);
+    const m = passend.length ? passend[passend.length - 1] : V.monate[0];
+    const vm = V.proMonat[m];
+    const i = V.monate.indexOf(m);
+    const vor = i > 0 ? V.proMonat[V.monate[i - 1]] : null;
+
+    $("vm-total").textContent = Format.chf(vm.netto);
+    let delta = "";
+    if (vor) {
+      const diff = vm.netto - vor.netto;
+      delta = `<span class="${diff >= 0 ? "besser" : "schlechter"}">${diff >= 0 ? "▲ +" : "▼ −"}${Format.chf(Math.abs(diff))}</span> seit Vormonat`;
+      const pm = zustand.daten.proMonat[m];
+      if (pm && pm.einnahmen) delta += ` · laut Budget gespart ${Format.chf(pm.einnahmen - pm.ausgaben + pm.sparen)}`;
+    }
+    $("vm-delta").innerHTML = delta;
+    $("vm-stand").textContent = vm.stichtag ? `Stand ${Format.datum(vm.stichtag)}` : `Stand ${Format.monat(m)}`;
+
+    // Verteilung nach Art
+    const gruppen = A.ARTEN.map(art => [art, vm.konten.filter(k => k.art === art).sort((a, b) => Math.abs(b.stand) - Math.abs(a.stand))])
+      .filter(([, k]) => k.length);
+    const maxAbs = Math.max(1, ...vm.konten.map(k => Math.abs(k.stand)));
+    $("verteilung-stand").textContent = vm.stichtag ? Format.datum(vm.stichtag) : "";
+    $("verteilung").innerHTML = gruppen.map(([art, konten]) => {
+      const summe = konten.reduce((s, k) => s + k.stand, 0);
+      return `<div class="gruppe ${art === "Schulden" ? "schulden" : ""} ${art === "Kinder" ? "kinder" : ""}">
+        <div class="gruppe-kopf"><strong>${esc(art === "Konto" ? "Konten" : art === "Investment" ? "Investments" : art)}</strong><span>${Format.chf(summe)}</span></div>
+        <ul class="balken">${konten.map(k => `<li>
+          <span class="name">${esc(k.konto)}</span><span class="betrag">${Format.chf(k.stand)}</span>
+          <div class="spur" aria-hidden="true"><div class="fuellung" data-breite="${Math.max(1, Math.abs(k.stand) / maxAbs * 100).toFixed(1)}"></div></div>
+        </li>`).join("")}</ul>
+        ${art === "Kinder" ? '<p class="hinweis">Gehört den Kindern – zählt nicht zum Nettovermögen.</p>' : ""}
+      </div>`;
+    }).join("");
+    for (const f of $("verteilung").querySelectorAll("[data-breite]")) f.style.width = `${f.dataset.breite}%`;
+
+    // Investments & Vorsorge: eingezahlt vs. Wert
+    const inv = vm.konten.filter(k => (k.art === "Investment" || k.art === "Vorsorge") && k.eingezahlt);
+    $("karte-invest").hidden = !inv.length;
+    if (inv.length) {
+      const maxI = Math.max(...inv.map(k => Math.max(k.stand, k.eingezahlt)), 1);
+      $("invest").innerHTML = inv.map(k => {
+        const gewinn = k.stand - k.eingezahlt;
+        const prozent = k.eingezahlt ? gewinn / k.eingezahlt : 0;
+        return `<li>
+          <div class="invest-kopf"><span class="name">${esc(k.konto)}</span>
+            <span class="${gewinn >= 0 ? "besser" : "schlechter"}">${gewinn >= 0 ? "+" : "−"}${Format.chf(Math.abs(gewinn))} (${gewinn >= 0 ? "+" : "−"}${Format.prozent(Math.abs(prozent))})</span></div>
+          <div class="spur duenn"><div class="fuellung grau" data-breite="${(k.eingezahlt / maxI * 100).toFixed(1)}"></div></div>
+          <div class="spur duenn"><div class="fuellung" data-breite="${(Math.max(0, k.stand) / maxI * 100).toFixed(1)}"></div></div>
+          <div class="detail">eingezahlt ${Format.chf(k.eingezahlt)} · heute ${Format.chf(k.stand)}</div>
+        </li>`;
+      }).join("");
+      for (const f of $("invest").querySelectorAll("[data-breite]")) f.style.width = `${f.dataset.breite}%`;
+    }
+
+    // Verlauf Nettovermögen (Balken, letzte 12 Monate bis zum gewählten)
+    const bis = V.monate.indexOf(m);
+    const bereich = V.monate.slice(Math.max(0, bis - 11), bis + 1);
+    if (!window.Chart) return;
+    const s1 = farbe("s1");
+    const opt = grundOptionen();
+    opt.scales.y.ticks.callback = v => Format.zahl(v);
+    opt.scales.y.beginAtZero = false;
+    opt.plugins.tooltip.callbacks = {
+      title: items => Format.monat(bereich[items[0].dataIndex]),
+      label: c => ` Nettovermögen: ${Format.chf(c.raw)}`,
+    };
+    neu("chart-vermoegen", {
+      type: "bar",
+      data: {
+        labels: bereich.map(Format.monatKurz),
+        datasets: [{
+          label: "Nettovermögen", data: bereich.map(x => V.proMonat[x].netto),
+          backgroundColor: bereich.map((x, j) => j === bereich.length - 1 ? s1 : transparent(s1, 0.4)),
+          borderRadius: 4, borderSkipped: "bottom", maxBarThickness: 36,
+        }],
+      },
+      options: opt,
+    });
   }
 
   function zahlungsmittel() {
@@ -444,9 +533,10 @@
   // ---------- Konto-Filter ----------
 
   function kontoFilterAnzeigen() {
+    // In der neuen Übersicht nicht mehr angezeigt (die Töpfe stehen in der Budget-Karte)
     const konten = zustand.alleKonten || [];
     const el = $("konto-filter");
-    el.hidden = konten.length < 2;
+    el.hidden = true;
     if (el.hidden) return;
     el.innerHTML = ["alle", ...konten].map(k =>
       `<button type="button" data-konto="${esc(k)}" aria-pressed="${k === zustand.kontoFilter}">${k === "alle" ? "Alle Konten" : esc(k)}</button>`).join("");
@@ -807,6 +897,7 @@
   function waehleMonat(m) {
     if (!zustand.daten.proMonat[m]) return;
     zustand.monat = m;
+    zustand.alleHinweise = false;
     alles();
   }
 
@@ -867,13 +958,21 @@
     setzeBuchungen(zustand.buchungen, false);
   });
 
+  $("warnungen").addEventListener("click", e => {
+    if (e.target.id !== "mehr-hinweise") return;
+    zustand.alleHinweise = true;
+    warnungsliste();
+  });
+
+  $("details").addEventListener("toggle", () => { if ($("details").open && zustand.daten) zeichneDiagramme(); });
+
   $("suche").addEventListener("input", buchungsTabelle);
   for (const id of ["e-kat", "e-spar", "e-gross", "e-umb", "e-regeln", "e-ignorieren", "e-ruecklagen", "e-cler-saldo", "e-cler-ein"]) $(id).addEventListener("change", einstellungAendern);
 
   $("loeschen").addEventListener("click", () => {
     if (!confirm("Gespeicherte Finanzdaten von diesem Gerät löschen?\n\nDeine Excel-Datei selbst bleibt unverändert.")) return;
     speicherLoeschen(SPEICHER_DATEN);
-    zustand.daten = null; zustand.quelle = null; zustand.buchungen = []; zustand.fixkosten = []; zustand.budgetsKonto = {}; zustand.kennzahlen = null;
+    zustand.daten = null; zustand.quelle = null; zustand.buchungen = []; zustand.fixkosten = []; zustand.budgetsKonto = {}; zustand.kennzahlen = null; zustand.vermoegen = [];
     for (const id of Object.keys(diagramme)) { diagramme[id].destroy(); delete diagramme[id]; }
     $("dashboard").hidden = true;
     $("start").hidden = false;
@@ -904,18 +1003,19 @@
 
   // Hell/Dunkel gewechselt -> Diagrammfarben neu setzen
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-    if (zustand.daten) zeichneDiagramme();
+    if (zustand.daten) { zeichneDiagramme(); vermoegenKarten(); }
   });
 
   // ---------- Start ----------
 
   const gespeichert = speicherLesen(SPEICHER_DATEN);
   if (gespeichert && Array.isArray(gespeichert.buchungen) &&
-      (gespeichert.buchungen.length || (gespeichert.fixkosten || []).length)) {
+      (gespeichert.buchungen.length || (gespeichert.fixkosten || []).length || (gespeichert.vermoegen || []).length)) {
     zustand.quelle = { beispiel: false, geladenAm: gespeichert.geladenAm || gespeichert.quelle?.geladenAm };
     zustand.fixkosten = gespeichert.fixkosten || [];
     zustand.budgetsKonto = gespeichert.budgetsKonto || {};
     zustand.kennzahlen = gespeichert.kennzahlen || null;
+    zustand.vermoegen = gespeichert.vermoegen || [];
     setzeBuchungen(gespeichert.buchungen, true);
   }
 

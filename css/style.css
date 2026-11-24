@@ -376,3 +376,78 @@ textarea {
 .cler-verlauf .hoch { color: var(--kritisch); font-weight: 600; }
 .tabelle.ohne-saldo th:nth-child(6), .tabelle.ohne-saldo td:nth-child(6) { display: none; }
 .sheet-werte .betrag { color: var(--text); font-weight: 600; }
+
+/* ============================================================
+   Neue Übersicht «auf einen Blick»
+   ============================================================ */
+
+:root { --s2-hell: color-mix(in srgb, var(--s2) 45%, var(--flaeche)); --grau: color-mix(in srgb, var(--text-leise) 45%, var(--flaeche)); }
+
+/* 1) Nettovermögen */
+.held-kopf { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.held h2 { font-size: 0.9375rem; color: var(--text-2); font-weight: 600; }
+.held-zahl { font-size: clamp(2rem, 7vw, 2.75rem); font-weight: 750; letter-spacing: -0.02em; line-height: 1.1; margin-top: 4px; }
+.held-unter { font-size: 0.9375rem; color: var(--text-2); margin-top: 4px; }
+.held-info { margin: 0; font-size: 0.8125rem; color: var(--text-leise); }
+.besser { color: var(--gut-text); font-weight: 600; }
+.schlechter { color: var(--kritisch); font-weight: 600; }
+.klein-diagramm { height: 180px !important; margin-top: 12px; }
+
+/* 2) Dieser Monat */
+.vergleich { display: grid; gap: 14px; }
+.vergleich .zeile { display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.vergleich .bez { font-size: 0.875rem; color: var(--text-2); }
+.vergleich .spur { height: 22px; border-radius: 6px; background: var(--flaeche-2); display: flex; gap: 2px; overflow: hidden; }
+.vergleich .seg { height: 100%; }
+.vergleich .seg:first-child { border-radius: 6px 0 0 6px; }
+.vergleich .seg:last-child { border-radius: 0 6px 6px 0; }
+.vergleich .seg:only-child { border-radius: 6px; }
+.vergleich .wert { font-weight: 600; font-variant-numeric: tabular-nums; font-size: 0.9375rem; }
+.seg.s1, .punkt.s1 { background: var(--s1); }
+.seg.s2 { background: var(--s2); }
+.seg.s2-hell, .punkt.s2-hell { background: var(--s2-hell); }
+.punkt.grau, .fuellung.grau { background: var(--grau) !important; }
+.legende.klein { font-size: 0.8125rem; margin-left: 94px; margin-top: -6px; }
+.ergebnis { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--linie); display: grid; gap: 2px; }
+.ergebnis-bez { font-size: 0.875rem; color: var(--text-2); }
+.ergebnis-zahl { font-size: 1.75rem; font-weight: 750; letter-spacing: -0.01em; }
+.ergebnis-zahl.gut { color: var(--gut-text); }
+.ergebnis-zahl.schlecht { color: var(--kritisch); }
+.ergebnis-unter { font-size: 0.8125rem; color: var(--text-leise); }
+@media (max-width: 480px) {
+  .vergleich .zeile { grid-template-columns: 72px minmax(0, 1fr) auto; }
+  .legende.klein { margin-left: 0; margin-top: 0; }
+}
+
+/* 4) Wohin geht das Geld – Fixkosten grau */
+.balken li.fix .fuellung { background: var(--grau); }
+
+/* 5) Wo liegt mein Geld */
+#verteilung { display: grid; gap: 18px; }
+.gruppe-kopf { display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--linie); }
+.gruppe .balken { gap: 8px; }
+.gruppe.schulden .fuellung { background: var(--kritisch); }
+.gruppe.kinder .fuellung { background: var(--s7); }
+.gruppe .hinweis { margin-top: 4px; }
+
+/* 6) Investments */
+.invest { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; }
+.invest-kopf { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-variant-numeric: tabular-nums; }
+.invest-kopf .name { font-weight: 600; }
+.spur.duenn { height: 8px; border-radius: 4px; background: var(--flaeche-2); overflow: hidden; margin-bottom: 4px; }
+.spur.duenn .fuellung { height: 100%; border-radius: 4px; background: var(--s1); }
+.invest .detail { font-size: 0.8125rem; color: var(--text-leise); }
+
+/* 7) Beachten */
+.warnungen .mehr { font-size: 0.8125rem; color: var(--text-leise); padding: 2px 4px; background: none; }
+@media (min-width: 760px) { #karte-warnungen .warnungen { grid-template-columns: 1fr; } }
+.unter-titel { font-size: 0.875rem; margin: 16px 0 6px; color: var(--text-2); }
+.kurzliste { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+.kurzliste li { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; border-bottom: 1px solid var(--linie); }
+
+/* Details */
+.details-raster { display: grid; gap: 24px; margin-top: 16px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 760px) { .details-raster { grid-template-columns: repeat(2, minmax(0, 1fr)); } .detail-block.breit { grid-column: 1 / -1; } }
+.detail-block h3 { margin: 0; font-size: 0.9375rem; }
+.detail-block .tabelle-rahmen { margin: 0; }
+.link-knopf { background: none; border: 0; padding: 6px 0; font: inherit; font-size: 0.875rem; font-weight: 600; color: var(--s1); cursor: pointer; min-height: 32px; }

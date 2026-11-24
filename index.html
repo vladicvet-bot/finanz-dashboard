@@ -73,135 +73,161 @@
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>
           </button>
         </div>
-        <div class="umschalter konto-filter" id="konto-filter" role="group" aria-label="Konto auswählen" hidden></div>
-        <div class="umschalter" role="group" aria-label="Zeitraum der Diagramme">
-          <button type="button" data-zeitraum="12" aria-pressed="true">12 Monate</button>
-          <button type="button" data-zeitraum="alle" aria-pressed="false">Alles</button>
-        </div>
       </div>
 
-      <div class="kennzahlen" id="kennzahlen"></div>
-
       <div class="raster">
-        <article class="karte breit" id="karte-warnungen">
-          <h2>Hinweise</h2>
-          <ul class="warnungen" id="warnungen"></ul>
-        </article>
-
-        <article class="karte breit">
-          <div class="karte-kopf">
-            <h2>Einnahmen und Ausgaben pro Monat</h2>
-            <div class="legende">
-              <span><i class="punkt s1"></i>Einnahmen</span>
-              <span><i class="punkt s2"></i>Ausgaben</span>
+        <!-- 1) Wie viel besitze ich? -->
+        <article class="karte breit held" id="karte-vermoegen">
+          <div class="held-kopf">
+            <div>
+              <h2>Nettovermögen</h2>
+              <div class="held-zahl" id="vm-total">–</div>
+              <div class="held-unter" id="vm-delta"></div>
             </div>
+            <p class="held-info" id="vm-stand"></p>
           </div>
-          <div class="diagramm"><canvas id="chart-monate" role="img" aria-label="Balkendiagramm Einnahmen und Ausgaben pro Monat"></canvas></div>
-          <p class="hinweis">Tippe auf einen Monat, um ihn auszuwählen.</p>
+          <div class="diagramm klein-diagramm" id="vm-diagramm"><canvas id="chart-vermoegen" role="img" aria-label="Balkendiagramm Nettovermögen pro Monat"></canvas></div>
+          <p class="hinweis" id="vm-leer" hidden>Trag deine Kontostände im Blatt <strong>«Vermögen»</strong> deines Sheets ein (eine Zeile pro Konto und Monat). Dann siehst du hier dein ganzes Vermögen.</p>
         </article>
 
+        <!-- 2) Wie lief dieser Monat? -->
+        <article class="karte" id="karte-monat">
+          <div class="karte-kopf"><h2 id="monat-titel">Dieser Monat</h2></div>
+          <div class="vergleich" id="monat-balken"></div>
+          <div class="ergebnis" id="monat-ergebnis"></div>
+        </article>
+
+        <!-- 3) Bin ich im Budget? -->
         <article class="karte" id="karte-budget" hidden>
           <div class="karte-kopf">
-            <h2>Budget variabel</h2>
+            <h2>Budget</h2>
             <span class="karte-zusatz" id="budget-summe"></span>
           </div>
           <ul class="balken budget" id="budget"></ul>
-          <p class="hinweis">Budget pro Topf aus deinem Sheet (Übersicht). Gezählt werden die variablen Ausgaben dieses Kontos im gewählten Monat.</p>
         </article>
 
-        <article class="karte">
+        <!-- 4) Wohin geht das Geld? -->
+        <article class="karte" id="karte-wohin">
           <div class="karte-kopf">
-            <h2>Ausgaben nach Kategorie</h2>
-            <div class="umschalter klein" role="group" aria-label="Kategorien für">
-              <button type="button" data-kat="monat" aria-pressed="true">Monat</button>
-              <button type="button" data-kat="zeitraum" aria-pressed="false">Ø Zeitraum</button>
-            </div>
+            <h2>Wohin geht das Geld?</h2>
+            <span class="karte-zusatz" id="wohin-total"></span>
           </div>
           <ul class="balken" id="kategorien"></ul>
-          <p class="hinweis" id="kat-fuss"></p>
         </article>
 
-        <article class="karte">
+        <!-- 5) Wo liegt mein Geld? -->
+        <article class="karte" id="karte-verteilung" hidden>
           <div class="karte-kopf">
-            <h2>Sparquote und Trend</h2>
+            <h2>Wo liegt mein Geld?</h2>
+            <span class="karte-zusatz" id="verteilung-stand"></span>
+          </div>
+          <div id="verteilung"></div>
+        </article>
+
+        <!-- 6) Lohnen sich meine Investments? -->
+        <article class="karte" id="karte-invest" hidden>
+          <div class="karte-kopf">
+            <h2>Investments &amp; Vorsorge</h2>
             <div class="legende">
-              <span><i class="punkt s1"></i>Sparquote</span>
-              <span><i class="linie s7"></i>Ø 3 Monate</span>
-              <span><i class="linie gestrichelt"></i>Ziel</span>
+              <span><i class="punkt grau"></i>Eingezahlt</span>
+              <span><i class="punkt s1"></i>Wert heute</span>
             </div>
           </div>
-          <div class="diagramm"><canvas id="chart-sparquote" role="img" aria-label="Liniendiagramm Sparquote pro Monat"></canvas></div>
+          <ul class="invest" id="invest"></ul>
         </article>
 
-        <article class="karte" id="karte-fix" hidden>
-          <div class="karte-kopf">
-            <h2>Fixkosten nach Gruppe</h2>
-            <span class="karte-zusatz" id="fix-summe"></span>
-          </div>
-          <ul class="balken" id="fix-gruppen"></ul>
-          <p class="hinweis" id="fix-fuss"></p>
+        <!-- 7) Was muss ich beachten? -->
+        <article class="karte" id="karte-warnungen">
+          <h2>Beachten</h2>
+          <ul class="warnungen" id="warnungen"></ul>
+          <div id="naechste-rechnungen"></div>
         </article>
 
-        <article class="karte" id="karte-faellig" hidden>
-          <div class="karte-kopf">
-            <h2>Fällige Rechnungen</h2>
-            <span class="karte-zusatz">nächste 3 Monate</span>
-          </div>
-          <ul class="faellig" id="faellig"></ul>
-          <p class="hinweis">Ohne monatliche Fixkosten. «Cler» = wird über den Cler-Topf bezahlt. <span id="faellig-unbekannt"></span></p>
-        </article>
-
-        <article class="karte" id="karte-cler" hidden>
-          <div class="karte-kopf">
-            <h2>Cler-Topf</h2>
-            <span class="karte-zusatz">Rücklagen für Rechnungen</span>
-          </div>
-          <div id="cler-inhalt"></div>
-        </article>
-
-        <article class="karte" id="karte-sheet" hidden>
-          <div class="karte-kopf">
-            <h2>Aus deinem Sheet</h2>
-            <span class="karte-zusatz" id="sheet-monat"></span>
-          </div>
-          <ul class="offen sheet-werte" id="sheet-werte"></ul>
-          <p class="hinweis">Kennzahlen aus dem Blatt Übersicht, so wie sie beim Herunterladen berechnet waren.</p>
-        </article>
-
-        <article class="karte" id="karte-saldo">
-          <div class="karte-kopf">
-            <h2>Kontostand-Verlauf</h2>
-            <span class="karte-zusatz" id="saldo-quelle"></span>
-          </div>
-          <div class="diagramm"><canvas id="chart-saldo" role="img" aria-label="Liniendiagramm Kontostand am Monatsende"></canvas></div>
-        </article>
-
-        <article class="karte">
-          <div class="karte-kopf">
-            <h2>Ausgaben nach Zahlungsmittel</h2>
-            <span class="karte-zusatz" id="zm-zeitraum"></span>
-          </div>
-          <ul class="balken" id="zahlungsmittel"></ul>
-        </article>
-
+        <!-- Details (zugeklappt) -->
         <article class="karte breit">
-          <div class="karte-kopf">
-            <h2 id="buchungen-titel">Buchungen</h2>
-            <input type="search" id="suche" placeholder="Suchen …" aria-label="Buchungen durchsuchen">
-          </div>
-          <div class="tabelle-rahmen">
-            <table class="tabelle">
-              <thead>
-                <tr><th>Datum</th><th>Kategorie</th><th>Beschreibung</th><th>Zahlungsmittel</th><th class="zahl">Betrag CHF</th><th class="zahl">Saldo CHF</th></tr>
-              </thead>
-              <tbody id="buchungen"></tbody>
-            </table>
-          </div>
+          <details class="einstellungen" id="details">
+            <summary><h2>Mehr Details</h2></summary>
+
+            <div class="details-raster">
+              <section class="detail-block breit">
+                <div class="karte-kopf">
+                  <h3>Einnahmen und Ausgaben pro Monat</h3>
+                  <div class="umschalter klein" role="group" aria-label="Zeitraum">
+                    <button type="button" data-zeitraum="12" aria-pressed="true">12 Monate</button>
+                    <button type="button" data-zeitraum="alle" aria-pressed="false">Alles</button>
+                  </div>
+                </div>
+                <div class="legende"><span><i class="punkt s1"></i>Einnahmen</span><span><i class="punkt s2"></i>Ausgaben</span></div>
+                <div class="diagramm"><canvas id="chart-monate" role="img" aria-label="Balkendiagramm Einnahmen und Ausgaben pro Monat"></canvas></div>
+                <p class="hinweis">Tippe auf einen Monat, um ihn auszuwählen.</p>
+              </section>
+
+              <section class="detail-block">
+                <div class="karte-kopf">
+                  <h3>Sparquote</h3>
+                  <div class="legende">
+                    <span><i class="punkt s1"></i>Sparquote</span>
+                    <span><i class="linie s7"></i>Ø 3 Monate</span>
+                    <span><i class="linie gestrichelt"></i>Ziel</span>
+                  </div>
+                </div>
+                <div class="diagramm"><canvas id="chart-sparquote" role="img" aria-label="Liniendiagramm Sparquote pro Monat"></canvas></div>
+              </section>
+
+              <section class="detail-block" id="karte-fix" hidden>
+                <div class="karte-kopf"><h3>Fixkosten nach Gruppe</h3><span class="karte-zusatz" id="fix-summe"></span></div>
+                <ul class="balken" id="fix-gruppen"></ul>
+                <p class="hinweis" id="fix-fuss"></p>
+              </section>
+
+              <section class="detail-block" id="karte-faellig" hidden>
+                <div class="karte-kopf"><h3>Fällige Rechnungen</h3><span class="karte-zusatz">nächste 3 Monate</span></div>
+                <ul class="faellig" id="faellig"></ul>
+                <p class="hinweis">Ohne monatliche Fixkosten. «Cler» = wird über den Cler-Topf bezahlt. <span id="faellig-unbekannt"></span></p>
+              </section>
+
+              <section class="detail-block" id="karte-cler" hidden>
+                <div class="karte-kopf"><h3>Cler-Topf</h3><span class="karte-zusatz">Rücklagen für Rechnungen</span></div>
+                <div id="cler-inhalt"></div>
+              </section>
+
+              <section class="detail-block" id="karte-sheet" hidden>
+                <div class="karte-kopf"><h3>Aus deinem Sheet</h3><span class="karte-zusatz" id="sheet-monat"></span></div>
+                <ul class="offen sheet-werte" id="sheet-werte"></ul>
+              </section>
+
+              <section class="detail-block" id="karte-saldo">
+                <div class="karte-kopf"><h3>Kontostand-Verlauf (Bank-Export)</h3><span class="karte-zusatz" id="saldo-quelle"></span></div>
+                <div class="diagramm"><canvas id="chart-saldo" role="img" aria-label="Liniendiagramm Kontostand am Monatsende"></canvas></div>
+              </section>
+
+              <section class="detail-block">
+                <div class="karte-kopf"><h3>Ausgaben nach Zahlungsmittel</h3><span class="karte-zusatz" id="zm-zeitraum"></span></div>
+                <ul class="balken" id="zahlungsmittel"></ul>
+              </section>
+
+              <section class="detail-block breit">
+                <div class="karte-kopf">
+                  <h3 id="buchungen-titel">Buchungen</h3>
+                  <input type="search" id="suche" placeholder="Suchen …" aria-label="Buchungen durchsuchen">
+                </div>
+                <div class="tabelle-rahmen">
+                  <table class="tabelle">
+                    <thead>
+                      <tr><th>Datum</th><th>Kategorie</th><th>Beschreibung</th><th>Zahlungsmittel</th><th class="zahl">Betrag CHF</th><th class="zahl">Saldo CHF</th></tr>
+                    </thead>
+                    <tbody id="buchungen"></tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+          </details>
         </article>
 
         <article class="karte breit">
           <details class="einstellungen">
             <summary><h2>Einstellungen und Daten</h2></summary>
+            <div class="umschalter konto-filter" id="konto-filter" hidden></div>
             <div class="einst-raster">
               <label>Warnung, wenn eine Kategorie mehr als
                 <span class="eingabe"><input type="number" id="e-kat" min="5" max="500" step="5" inputmode="numeric"> %</span>

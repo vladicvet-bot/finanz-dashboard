@@ -443,12 +443,14 @@
   // =====================================================================
 
   const SHEET_SPALTEN = {
-    datum: ["datum", "date"],
+    datum: ["datum", "date", "stichtag"],
     was: ["wasgeschäft", "wasquelle", "was", "geschäft", "quelle", "beschreibung", "text"],
     kategorie: ["kategorie", "art", "category"],
     betrag: ["betrag", "betragin", "amount"],
-    konto: ["konto"],
+    konto: ["konto", "kontoanlage", "anlage"],
     zahlmittel: ["zahlmittel", "zahlungsmittel"],
+    stand: ["stand", "kontostand", "wert"],
+    eingezahlt: ["eingezahlt", "einbezahlt", "einzahlungen"],
     notiz: ["notiz", "bemerkung"],
     posten: ["posten", "bezeichnung"],
     gruppe: ["gruppe"],
@@ -622,13 +624,82 @@
     return budgets;
   }
 
+  // ---------- Blatt «Vermögen»: Stände pro Konto/Anlage und Stichtag ----------
+
+  const ARTEN = ["Konto", "Rücklage", "Vorsorge", "Investment", "Schulden", "Kinder", "Andere"];
+  function normArt(a) {
+    const t = String(a || "").toLowerCase();
+    if (/kind/.test(t)) return "Kinder";
+    if (/schuld|kredit|hypo/.test(t)) return "Schulden";
+    if (/vorsorge|3a|säule|pensions/.test(t)) return "Vorsorge";
+    if (/invest|depot|aktie|fonds|etf|krypto|crypto/.test(t)) return "Investment";
+    if (/rücklage|ruecklage|reserve/.test(t)) return "Rücklage";
+    if (/konto|bank|spar/.test(t)) return "Konto";
+    return "Andere";
+  }
+
+  function leseVermoegen(blatt) {
+    const kopf = blatt && findeKopf(blatt.zeilen, ["datum", "konto", "stand"]);
+    if (!kopf) return [];
+    const s = kopf.s;
+    const liste = [];
+    for (let i = kopf.zeile + 1; i < blatt.zeilen.length; i++) {
+      const z = blatt.zeilen[i] || [];
+      const datum = zuDatum(z[s.datum]);
+      const konto = text(z[s.konto]);
+      const stand = zuBetrag(z[s.stand]);
+      if (!datum || !konto || stand == null) continue;
+      const art = normArt(s.kategorie !== undefined ? z[s.kategorie] : "");
+      const e = s.eingezahlt !== undefined ? zuBetrag(z[s.eingezahlt]) : null;
+      liste.push({
+        datum, konto, art,
+        stand: art === "Schulden" ? -Math.abs(stand) : stand,
+        eingezahlt: e != null ? Math.abs(e) : null,
+      });
+    }
+    return liste;
+  }
+
+  // Pro Monat: letzter bekannter Stand jedes Kontos (fehlende Monate übernehmen den Vormonat)
+  function vermoegenBerechnen(eintraege) {
+    if (!eintraege.length) return { monate: [], proMonat: {} };
+    const sortiert = [...eintraege].sort((a, b) => a.datum < b.datum ? -1 : a.datum > b.datum ? 1 : 0);
+    const erster = monatVon(sortiert[0].datum);
+    const letzter = monatVon(sortiert[sortiert.length - 1].datum);
+    const monate = [];
+    for (let m = erster; monate.length < 600; m = naechsterMonat(m)) { monate.push(m); if (m === letzter) break; }
+    const stand = new Map();
+    const proMonat = {};
+    let i = 0;
+    for (const m of monate) {
+      let datum = null;
+      while (i < sortiert.length && monatVon(sortiert[i].datum) === m) {
+        stand.set(sortiert[i].konto, sortiert[i]);
+        datum = sortiert[i].datum;
+        i++;
+      }
+      const konten = [...stand.values()];
+      const nachArt = {};
+      for (const k of konten) nachArt[k.art] = (nachArt[k.art] || 0) + k.stand;
+      proMonat[m] = {
+        monat: m, stichtag: datum, konten,
+        netto: konten.filter(k => k.art !== "Kinder").reduce((s, k) => s + k.stand, 0),
+        kinder: nachArt.Kinder || 0,
+        nachArt,
+      };
+    }
+    return { monate, proMonat };
+  }
+
   /*
    * Liest eine Datei (alle Blätter). Erkennt das Sheet-Format; sonst wird
    * das erste Blatt mit erkennbaren Spalten als Haushaltsbuch/Bank-Export gelesen.
    */
   function ausArbeitsmappe(blaetter, dateiname = "") {
     const ausgabenBlatt = blattSuchen(blaetter, "ausgaben");
-    if (ausgabenBlatt) {
+    const vermoegenBlatt = blattSuchen(blaetter, "vermögen") || blattSuchen(blaetter, "vermoegen");
+    if (ausgabenBlatt || vermoegenBlatt) {
+      const vermoegen = leseVermoegen(vermoegenBlatt);
       const aus = leseSheetBuchungen(ausgabenBlatt, "aus");
       const ein = leseSheetBuchungen(blattSuchen(blaetter, "einnahmen"), "ein");
       const fixkosten = leseFixkosten(blattSuchen(blaetter, "fixkosten"));
@@ -637,10 +708,10 @@
       const kennzahlen = leseKennzahlen(uebersicht);
       const buchungen = aus.buchungen.concat(ein.buchungen)
         .sort((a, b) => a.datum < b.datum ? -1 : a.datum > b.datum ? 1 : 0);
-      if (!buchungen.length && !fixkosten.length) throw new Error("KEINE_BUCHUNGEN");
+      if (!buchungen.length && !fixkosten.length && !vermoegen.length) throw new Error("KEINE_BUCHUNGEN");
       buchungen.forEach((b, i) => { b.nr = i; });
       return {
-        typ: "sheet", buchungen, fixkosten, budgets, kennzahlen,
+        typ: "sheet", buchungen, fixkosten, budgets, kennzahlen, vermoegen,
         anzahlAusgaben: aus.buchungen.length, anzahlEinnahmen: ein.buchungen.length,
         uebersprungen: aus.uebersprungen + ein.uebersprungen,
         von: buchungen.length ? buchungen[0].datum : null,
@@ -792,7 +863,7 @@
 
   window.Analyse = {
     buchungenAusTabelle, ausArbeitsmappe, zuordnen, berechne, zeitraum, durchschnittVorher, warnungen,
-    fixBuchungen, fixUebersicht, faelligkeiten, clerBedarfProMonat, clerPrognose, monatVon, naechsterMonat,
+    fixBuchungen, fixUebersicht, faelligkeiten, vermoegenBerechnen, ARTEN, clerBedarfProMonat, clerPrognose, monatVon, naechsterMonat,
     STANDARD_REGELN,
     _test: { zuDatum, zuBetrag, normName },
   };

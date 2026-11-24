@@ -6,20 +6,17 @@ Die Seite öffnet deine Excel-Datei und rechnet **alles direkt in deinem Browser
 
 ## Was das Dashboard zeigt
 
-- **Kennzahlen** für den gewählten Monat: Einnahmen, Ausgaben, gesparter Betrag mit Sparquote und Kontostand am Monatsende
-- **Einnahmen und Ausgaben pro Monat** als Balkendiagramm. Tippst du auf einen Monat, wird er ausgewählt.
-- **Ausgaben nach Kategorie**, jeweils mit Vergleich zum Durchschnitt der letzten 3 Monate
-- **Sparquote und Trend** mit gleitendem 3-Monats-Durchschnitt und deinem Ziel
-- **Kontostand-Verlauf** aus der Spalte «Saldo»
-- **Ausgaben nach Zahlungsmittel**, zum Beispiel Debitkarte, TWINT, Bar oder eBill
-- **Hinweise bei Auffälligkeiten**:
-  - Eine Kategorie liegt mehr als 30 % über ihrem Durchschnitt.
-  - Die Sparquote liegt unter 10 %.
-  - Es gibt eine Einzelausgabe ab CHF 500, die nicht regelmässig vorkommt (Miete zählt also nicht).
-  - Du hast mehr ausgegeben als eingenommen.
+Eine Seite, die man von oben nach unten liest. Jede Karte beantwortet eine Frage:
 
-  Die Grenzwerte kannst du unten auf der Seite unter «Einstellungen und Daten» ändern.
-- **Buchungsliste** mit Suche
+1. **Wie viel besitze ich?** Nettovermögen als grosse Zahl, die Veränderung seit dem Vormonat und Balken pro Monat
+2. **Wie lief dieser Monat?** Einnahmen und Ausgaben (fix und variabel) als Balken, dazu «Gespart» gross
+3. **Bin ich im Budget?** ein Balken pro Topf (Privat, Gem. Konto)
+4. **Wohin geht das Geld?** die grössten Kategorien und die Fixkosten als ein Balken
+5. **Wo liegt mein Geld?** jedes Konto und jede Anlage, gruppiert nach Konten, Rücklage, Vorsorge, Investments, Schulden und Kinder
+6. **Lohnen sich meine Investments?** pro Anlage eingezahlt gegenüber heutigem Wert, mit Gewinn oder Verlust
+7. **Was muss ich beachten?** höchstens 3 Hinweise und die nächsten fälligen Rechnungen
+
+Unter **«Mehr Details»** (zugeklappt) findest du die Monatsverläufe, die Sparquote, die Fixkosten nach Gruppe, den Cler-Topf, die Kennzahlen aus dem Sheet und alle Buchungen.
 
 ## Empfohlen: dein Finanz-Sheet als Excel
 
@@ -30,6 +27,15 @@ Am besten liest das Dashboard dein Finanz-Sheet (Google Sheets oder Excel) mit d
 | **Ausgaben** | Datum · Was / Geschäft · Kategorie · Betrag CHF · Konto · Zahlmittel · Notiz |
 | **Einnahmen** | Datum · Was / Quelle · Art · Betrag CHF · Konto · Notiz |
 | **Fixkosten** | Posten · Gruppe · Rhythmus · Betrag CHF · Pro Monat · Konto · Notiz · Über Cler · Fällig |
+
+| **Vermögen** | Stichtag · Konto / Anlage · Art · Stand CHF · Eingezahlt CHF · Notiz |
+
+**Blatt «Vermögen»:** Einmal im Monat, am letzten Tag des Monats, trägst du pro Konto und Anlage eine Zeile mit dem Stand ein. Das dauert etwa 5 Minuten.
+- **Art:** Konto · Rücklage · Vorsorge · Investment · Schulden · Kinder
+- **Schulden**, zum Beispiel die Kreditkarte, trägst du als negativen Betrag ein.
+- **Eingezahlt CHF** brauchst du nur bei Vorsorge und Investments, also die Summe aller bisherigen Einzahlungen. Damit zeigt das Dashboard Gewinn oder Verlust.
+- **Kinderkonten** werden separat gezeigt und zählen nicht zum Nettovermögen.
+- Fehlt ein Konto in einem Monat, übernimmt das Dashboard den letzten bekannten Stand.
 
 Aus dem Blatt **Übersicht** wird nur die Tabelle «Budget variabel» (Topf · Budget) gelesen. Alles andere, auch der «Jahresplan», berechnet das Dashboard selbst.
 

@@ -1,6 +1,7 @@
 """
 Erzeugt ERFUNDENE Beispieldaten für das Finanz-Dashboard – im Format
-eines Finanz-Sheets mit den Blättern «Ausgaben», «Einnahmen» und «Fixkosten».
+eines Finanz-Sheets mit den Blättern «Ausgaben», «Einnahmen», «Fixkosten»,
+«Übersicht» und «Vermögen».
 
 Alle Posten, Händler und Beträge sind frei erfunden.
 Aufruf:  python3 tools/erzeuge_beispieldaten.py
@@ -185,6 +186,35 @@ for r in einnahmen:
     ws.append(list(r))
     ws.cell(ws.max_row, 1).number_format = "dd.mm.yyyy"
     ws.cell(ws.max_row, 4).number_format = "#,##0.00"
+
+# ---------------- Vermögen (Stand pro Konto am Monatsende) ----------------
+import calendar
+vm = wb.create_sheet("Vermögen")
+kopf(vm, ["Stichtag", "Konto / Anlage", "Art", "Stand CHF", "Eingezahlt CHF", "Notiz"], (12, 24, 14, 14, 16, 16))
+stand = {"Privatkonto": 4200.0, "Gem. Konto": 2100.0, "Rechnungskonto": 1800.0, "Sparkonto": 15000.0,
+         "Säule 3a": 21000.0, "Depot": 12000.0, "Krypto": 1500.0, "Zweitkonto": 300.0,
+         "Kinderkonto A": 2400.0, "Kinderkonto B": 1900.0}
+eingezahlt = {"Säule 3a": 19500.0, "Depot": 11000.0, "Krypto": 1700.0}
+ARTEN_VM = {"Privatkonto": "Konto", "Gem. Konto": "Konto", "Zweitkonto": "Konto", "Rechnungskonto": "Rücklage",
+            "Sparkonto": "Konto", "Säule 3a": "Vorsorge", "Depot": "Investment", "Krypto": "Investment",
+            "Kinderkonto A": "Kinder", "Kinderkonto B": "Kinder"}
+for jahr, monat in MONATE[:-1]:  # der laufende Monat ist noch nicht abgeschlossen
+    stichtag = date(jahr, monat, calendar.monthrange(jahr, monat)[1])
+    stand["Privatkonto"] = round(max(800, stand["Privatkonto"] + random.uniform(-900, 1100)), 2)
+    stand["Gem. Konto"] = round(max(400, stand["Gem. Konto"] + random.uniform(-500, 500)), 2)
+    stand["Rechnungskonto"] = round(max(300, stand["Rechnungskonto"] + random.uniform(-900, 900)), 2)
+    stand["Sparkonto"] = round(stand["Sparkonto"] + 200 + stand["Sparkonto"] * 0.0005, 2)
+    stand["Zweitkonto"] = round(max(0, stand["Zweitkonto"] + random.uniform(-150, 150)), 2)
+    for name, einzahlung, schwankung in [("Säule 3a", 300, 0.012), ("Depot", 250, 0.03), ("Krypto", 50, 0.12)]:
+        eingezahlt[name] += einzahlung
+        stand[name] = round((stand[name] + einzahlung) * (1 + random.gauss(0.004, schwankung)), 2)
+    for k in ("Kinderkonto A", "Kinderkonto B"):
+        stand[k] = round(stand[k] + 50, 2)
+    for name in stand:
+        vm.append([stichtag, name, ARTEN_VM[name], stand[name], eingezahlt.get(name), ""])
+        vm.cell(vm.max_row, 1).number_format = "dd.mm.yyyy"
+    vm.append([stichtag, "Kreditkarte", "Schulden", -round(random.uniform(250, 900), 2), None, ""])
+    vm.cell(vm.max_row, 1).number_format = "dd.mm.yyyy"
 
 jp = wb.create_sheet("Jahresplan")
 jp.append(["Jahresplan – wird im Sheet berechnet (für das Dashboard nicht nötig)"])
