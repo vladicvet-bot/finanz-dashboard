@@ -1,0 +1,25 @@
+# ============================================================
+#  DATENSCHUTZ: Echte Finanzdaten gehören NIE ins Repository.
+# ============================================================
+# Alle Tabellen- und Exportdateien werden von Git ignoriert,
+# egal in welchem Ordner sie liegen und egal ob gross/klein
+# geschrieben ([xX] heisst: x oder X).
+
+*.[xX][lL][sS][xX]
+*.[xX][lL][sS][mM]
+*.[xX][lL][sS][bB]
+*.[xX][lL][sS]
+*.[cC][sS][vV]
+*.[tT][sS][vV]
+*.[oO][dD][sS]
+*.[nN][uU][mM][bB][eE][rR][sS]
+# Temporäre Excel-Sperrdateien (z.B. "~$Finanzen.xlsx")
+~$*
+
+# Einzige Ausnahme: die erfundenen Beispieldaten
+!beispieldaten/
+!beispieldaten/beispiel-haushalt.xlsx
+
+# Systemdateien
+.DS_Store
+Thumbs.db
