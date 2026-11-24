@@ -10,7 +10,8 @@
  * Wir entpacken es mit der eingebauten Browser-Funktion
  * "DecompressionStream" und lesen das erste Tabellenblatt.
  *
- * Ergebnis: ein Array von Zeilen; jede Zeile ist ein Array von Zellen.
+ * Ergebnis: eine Liste von Tabellenblättern [{ name, zeilen }].
+ * zeilen ist ein Array von Zeilen; jede Zeile ist ein Array von Zellen.
  * Eine Zelle ist eine Zahl, ein Text oder ein Datum {datum: "JJJJ-MM-TT"}.
  */
 (function () {
@@ -123,17 +124,20 @@
     const pr = erstes(wb, "workbookPr");
     const basis1904 = !!pr && /^(1|true)$/.test(pr.getAttribute("date1904") || "");
 
-    // Erstes Tabellenblatt finden
-    const blatt = erstes(wb, "sheet");
-    if (!blatt) throw new Error("KEIN_BLATT");
-    const rId = blatt.getAttribute("r:id") ||
-      blatt.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
-    let blattPfad = "xl/worksheets/sheet1.xml";
+    // Alle Tabellenblätter mit Namen und Pfad finden
+    const blaetterXml = alle(wb, "sheet");
+    if (!blaetterXml.length) throw new Error("KEIN_BLATT");
     const relsText = await zip.lesen("xl/_rels/workbook.xml.rels");
-    if (relsText && rId) {
-      const rel = alle(xml(relsText), "Relationship").find(r => r.getAttribute("Id") === rId);
-      if (rel) blattPfad = pfad("xl/workbook.xml", rel.getAttribute("Target"));
-    }
+    const rels = relsText ? alle(xml(relsText), "Relationship") : [];
+    const blaetterInfo = blaetterXml.map((blatt, i) => {
+      const rId = blatt.getAttribute("r:id") ||
+        blatt.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
+      const rel = rels.find(r => r.getAttribute("Id") === rId);
+      return {
+        name: blatt.getAttribute("name") || `Blatt ${i + 1}`,
+        pfad: rel ? pfad("xl/workbook.xml", rel.getAttribute("Target")) : `xl/worksheets/sheet${i + 1}.xml`,
+      };
+    });
 
     // Gemeinsame Texte (Excel speichert jeden Text nur einmal)
     const texte = [];
@@ -164,8 +168,17 @@
       }
     }
 
-    const blattText = await zip.lesen(blattPfad);
-    if (!blattText) throw new Error("KEIN_BLATT");
+    const ergebnis = [];
+    for (const info of blaetterInfo) {
+      const blattText = await zip.lesen(info.pfad);
+      if (!blattText) continue;
+      ergebnis.push({ name: info.name, zeilen: leseBlatt(blattText, texte, datumsStil, basis1904) });
+    }
+    if (!ergebnis.length) throw new Error("KEIN_BLATT");
+    return ergebnis;
+  }
+
+  function leseBlatt(blattText, texte, datumsStil, basis1904) {
     const zeilen = [];
     let naechsteZeile = 0;
 
@@ -237,7 +250,7 @@
     if (endung === "csv" || endung === "txt" || endung === "tsv") {
       let text = new TextDecoder("utf-8").decode(buffer);
       if (text.includes("�")) text = new TextDecoder("windows-1252").decode(buffer);
-      return leseCsv(text);
+      return [{ name, zeilen: leseCsv(text) }];
     }
     if (endung === "xls") throw new Error("ALTES_XLS");
     if (endung === "numbers") throw new Error("NUMBERS");

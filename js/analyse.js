@@ -229,7 +229,8 @@
       migriere(b);
       b.kategorie = b.kategorieDatei || regelKategorie(b.beschreibung, regeln)
         || (b.einnahme ? "Sonstige Einnahmen" : "Nicht zugeordnet");
-      b.zahlungsmittel = b.zahlungsmittelDatei || erkenneZahlungsmittel(b.beschreibung)
+      b.zahlungsmittel = b.zahlungsmittelDatei
+        || (b.quelle === "sheet" ? "Karte unbekannt" : erkenneZahlungsmittel(b.beschreibung))
         || (b.konto === "Haushaltsbuch" ? "Unbekannt" : b.konto);
     }
   }
@@ -264,15 +265,18 @@
       proMonat[m] = {
         monat: m, einnahmen: 0, ausgaben: 0, nachKategorie: {}, einnahmenNachKategorie: {},
         nachZahlungsmittel: {}, buchungen: [], saldoEnde: null, umbuchungRaus: 0, umbuchungRein: 0,
+        sparen: 0, fixAusgaben: 0, variabelNachKategorie: {},
       };
       if (m === letzter || monate.length > 600) break;
     }
 
     for (const b of sortiert) {
       const pm = proMonat[monatVon(b.datum)];
-      b.umbuchung = istUmbuchung.has(b.kategorie.toLowerCase());
+      b.umbuchung = !!b.transfer || istUmbuchung.has(b.kategorie.toLowerCase());
       pm.buchungen.push(b);
       if (b.umbuchung) {
+        if (b.sparen) { pm.sparen += b.ausgabe; continue; }
+        if (b.fix) continue; // feste Daueraufträge zwischen eigenen Konten: nicht extra melden
         pm.umbuchungRaus += b.ausgabe;
         pm.umbuchungRein += b.einnahme;
         continue;
@@ -281,19 +285,25 @@
       pm.ausgaben += b.ausgabe;
       if (b.ausgabe) {
         summiere(pm.nachKategorie, b.kategorie, b.ausgabe);
-        summiere(pm.nachZahlungsmittel, b.zahlungsmittel, b.ausgabe);
+        if (b.fix) pm.fixAusgaben += b.ausgabe;
+        else {
+          summiere(pm.nachZahlungsmittel, b.zahlungsmittel, b.ausgabe);
+          summiere(pm.variabelNachKategorie, b.kategorie, b.ausgabe);
+        }
       }
       if (b.einnahme) summiere(pm.einnahmenNachKategorie, b.kategorie, b.einnahme);
     }
 
     // Kontostand: pro Konto der letzte Saldo des Monats, dann alle Konten zusammenzählen.
     // Konten ohne Saldo-Spalte werden ab 0 selbst aufsummiert.
+    // (Sheet-Buchungen und Fixkosten haben keinen Kontostand und werden hier übersprungen.)
     const konten = [...new Set(sortiert.map(b => b.konto))];
     const mitSaldo = new Set(konten.filter(k => sortiert.some(b => b.konto === k && b.saldo != null)));
     const stand = {};
     for (const m of monate) {
       const pm = proMonat[m];
       for (const b of pm.buchungen) {
+        if (b.fix || b.quelle === "sheet") continue;
         if (mitSaldo.has(b.konto)) { if (b.saldo != null) stand[b.konto] = b.saldo; }
         else stand[b.konto] = (stand[b.konto] || 0) + b.einnahme - b.ausgabe;
       }
@@ -315,6 +325,8 @@
     return {
       monate, proMonat, konten,
       hatSaldo: konten.every(k => mitSaldo.has(k)),
+      hatKontostand: Object.keys(stand).length > 0,
+      hatFix: sortiert.some(b => b.fix),
     };
   }
 
@@ -357,7 +369,9 @@
         text: "Dieser Monat ist noch nicht vorbei. Vergleiche sind darum vorläufig." });
     }
 
-    if (pm.einnahmen === 0 && pm.ausgaben > 0) {
+    if (einst.nurAusgaben) {
+      // Einzelnes Konto gewählt: Einnahmen/Sparquote sind hier nicht aussagekräftig
+    } else if (pm.einnahmen === 0 && pm.ausgaben > 0) {
       liste.push({ stufe: "kritisch", titel: "Keine Einnahmen",
         text: `In diesem Monat sind keine Einnahmen erfasst, aber ${fmt.chf(pm.ausgaben)} Ausgaben.` });
     } else if (pm.ausgaben > pm.einnahmen) {
@@ -391,19 +405,29 @@
     // Ungewöhnlich grosse Einzelausgaben (wiederkehrende wie Miete ausgenommen)
     const frueher = vm.flatMap(m => daten.proMonat[m].buchungen);
     for (const b of pm.buchungen) {
-      if (b.umbuchung || b.ausgabe < einst.grosseAusgabe) continue;
+      if (b.umbuchung || b.fix || b.ausgabe < einst.grosseAusgabe) continue;
       const wiederkehrend = frueher.some(f => f.kategorie === b.kategorie && f.ausgabe >= b.ausgabe * 0.8);
       if (wiederkehrend) continue;
       liste.push({ stufe: "warnung", titel: "Grosse Einzelausgabe",
         text: `${fmt.chf(b.ausgabe)} · ${b.beschreibung || b.kategorie} (${fmt.datum(b.datum)})` });
     }
 
+    // Budgets überschritten (nur variable Ausgaben)
+    const budgets = einst.budgetsMap || {};
+    for (const [kat, budget] of Object.entries(budgets)) {
+      const ist = pm.variabelNachKategorie[kat] || 0;
+      if (ist > budget) {
+        liste.push({ stufe: "warnung", titel: `Budget ${kat} überschritten`,
+          text: `${fmt.chf(ist)} von ${fmt.chf(budget)} – ${fmt.chf(ist - budget)} zu viel.` });
+      }
+    }
+
     if (pm.umbuchungRaus || pm.umbuchungRein) {
       const teile = [];
-      if (pm.umbuchungRaus) teile.push(`${fmt.chf(pm.umbuchungRaus)} weggebucht`);
-      if (pm.umbuchungRein) teile.push(`${fmt.chf(pm.umbuchungRein)} hergebucht`);
-      liste.push({ stufe: "info", titel: "Umbuchungen",
-        text: `${teile.join(", ")} – zählen nicht als Einnahmen oder Ausgaben.` });
+      if (pm.umbuchungRaus) teile.push(`${fmt.chf(pm.umbuchungRaus)} raus`);
+      if (pm.umbuchungRein) teile.push(`${fmt.chf(pm.umbuchungRein)} rein`);
+      liste.push({ stufe: "info", titel: "Nicht mitgezählt",
+        text: `Umbuchungen u.ä.: ${teile.join(", ")} – zählen nicht als Einnahmen oder Ausgaben.` });
     }
 
     if (!liste.some(w => w.stufe !== "info")) {
@@ -413,8 +437,252 @@
     return liste;
   }
 
+  // =====================================================================
+  //  SHEET-FORMAT: Arbeitsmappe mit den Blättern «Ausgaben», «Einnahmen»
+  //  und «Fixkosten» (z.B. aus Google Sheets als .xlsx heruntergeladen)
+  // =====================================================================
+
+  const SHEET_SPALTEN = {
+    datum: ["datum", "date"],
+    was: ["wasgeschäft", "wasquelle", "was", "geschäft", "quelle", "beschreibung", "text"],
+    kategorie: ["kategorie", "art", "category"],
+    betrag: ["betrag", "betragin", "amount"],
+    konto: ["konto"],
+    zahlmittel: ["zahlmittel", "zahlungsmittel"],
+    notiz: ["notiz", "bemerkung"],
+    posten: ["posten", "bezeichnung"],
+    gruppe: ["gruppe"],
+    rhythmus: ["rhythmus", "intervall"],
+    promonat: ["promonat"],
+    uebercler: ["übercler", "uebercler"],
+    faellig: ["fällig", "faellig", "fälligkeit"],
+  };
+
+  function findeKopf(zeilen, pflicht) {
+    for (let i = 0; i < Math.min(zeilen.length, 15); i++) {
+      const namen = (zeilen[i] || []).map(normName);
+      const s = {};
+      for (const [key, varianten] of Object.entries(SHEET_SPALTEN)) {
+        const idx = namen.findIndex(n => varianten.includes(n));
+        if (idx >= 0) s[key] = idx;
+      }
+      if (pflicht.every(k => s[k] !== undefined)) return { zeile: i, s };
+    }
+    return null;
+  }
+
+  const blattSuchen = (blaetter, name) => blaetter.find(b => normName(b.name) === name);
+
+  // Buchungen aus «Ausgaben» oder «Einnahmen»
+  function leseSheetBuchungen(blatt, richtung) {
+    const kopf = blatt && findeKopf(blatt.zeilen, ["datum", "betrag"]);
+    if (!kopf) return { buchungen: [], uebersprungen: 0 };
+    const s = kopf.s;
+    const buchungen = [];
+    let uebersprungen = 0;
+    for (let i = kopf.zeile + 1; i < blatt.zeilen.length; i++) {
+      const z = blatt.zeilen[i] || [];
+      if (z.every(v => v == null || v === "")) continue;
+      const datum = zuDatum(z[s.datum]);
+      const betrag = Math.abs(zuBetrag(z[s.betrag]) || 0);
+      if (!datum || !betrag) { uebersprungen++; continue; }
+      buchungen.push({
+        datum,
+        beschreibung: text(z[s.was]),
+        notiz: s.notiz !== undefined ? text(z[s.notiz]) : "",
+        kategorieDatei: s.kategorie !== undefined ? text(z[s.kategorie]) : "",
+        zahlungsmittelDatei: s.zahlmittel !== undefined ? text(z[s.zahlmittel]) : "",
+        konto: (s.konto !== undefined && text(z[s.konto])) || "Ohne Konto",
+        einnahme: richtung === "ein" ? betrag : 0,
+        ausgabe: richtung === "aus" ? betrag : 0,
+        saldo: null,
+        quelle: "sheet",
+      });
+    }
+    return { buchungen, uebersprungen };
+  }
+
+  // Rhythmus -> Anzahl Zahlungen pro Jahr
+  function proJahr(rhythmus) {
+    const r = String(rhythmus || "").toLowerCase();
+    if (/alle\s*3\s*jahr/.test(r)) return 1 / 3;
+    if (/alle\s*2\s*jahr/.test(r)) return 1 / 2;
+    if (/viertel|quartal|3\s*monat/.test(r)) return 4;
+    if (/halb/.test(r)) return 2;
+    if (/monat/.test(r)) return 12;
+    if (/jähr|jaehr|jahr/.test(r)) return 1;
+    if (/woche/.test(r)) return 52;
+    return 12;
+  }
+
+  const MONATE_KURZ = ["jan", "feb", "mär", "apr", "mai", "jun", "jul", "aug", "sep", "okt", "nov", "dez"];
+  function leseFaellig(wert, haeufigkeit) {
+    const t = String(wert ?? "").toLowerCase().replace(/mar(?!k)/g, "mär").replace(/märz/g, "mär");
+    const monate = new Set();
+    for (const teil of t.split(/[^a-zäöü0-9]+/)) {
+      const i = MONATE_KURZ.findIndex(m => teil.startsWith(m));
+      if (i >= 0) monate.add(i + 1);
+      else if (/^\d{1,2}$/.test(teil) && +teil >= 1 && +teil <= 12) monate.add(+teil);
+    }
+    if (!monate.size && haeufigkeit >= 12) for (let m = 1; m <= 12; m++) monate.add(m);
+    return [...monate].sort((a, b) => a - b);
+  }
+
+  function istJa(wert) {
+    if (wert === true) return true;
+    return /^(ja|j|x|yes|y|true|wahr|1|✓|✔)$/i.test(String(wert ?? "").trim());
+  }
+
+  // Art eines Fixkosten-Postens anhand der Gruppe
+  function fixArt(gruppe) {
+    const g = String(gruppe || "").toLowerCase();
+    if (/^einnahme/.test(g)) return "einnahme";
+    if (/sparen|invest/.test(g)) return "sparen";
+    if (/überweisung|ueberweisung|umbuchung|übertrag/.test(g)) return "transfer";
+    return "ausgabe";
+  }
+
+  function leseFixkosten(blatt) {
+    const kopf = blatt && findeKopf(blatt.zeilen, ["posten", "betrag"]);
+    if (!kopf) return [];
+    const s = kopf.s;
+    const liste = [];
+    for (let i = kopf.zeile + 1; i < blatt.zeilen.length; i++) {
+      const z = blatt.zeilen[i] || [];
+      const posten = text(z[s.posten]);
+      const betrag = Math.abs(zuBetrag(z[s.betrag]) || 0);
+      if (!posten || !betrag) continue;
+      const rhythmus = s.rhythmus !== undefined ? text(z[s.rhythmus]) : "monatlich";
+      const haeufigkeit = proJahr(rhythmus);
+      const pm = s.promonat !== undefined ? zuBetrag(z[s.promonat]) : null;
+      liste.push({
+        posten,
+        gruppe: (s.gruppe !== undefined && text(z[s.gruppe])) || "Fixkosten",
+        rhythmus,
+        haeufigkeit,
+        betrag,
+        proMonat: pm != null && pm !== 0 ? Math.abs(pm) : betrag * haeufigkeit / 12,
+        konto: (s.konto !== undefined && text(z[s.konto])) || "Ohne Konto",
+        ueberCler: s.uebercler !== undefined ? istJa(z[s.uebercler]) : false,
+        faellig: leseFaellig(s.faellig !== undefined ? z[s.faellig] : "", haeufigkeit),
+      });
+    }
+    return liste;
+  }
+
+  /*
+   * Liest eine Datei (alle Blätter). Erkennt das Sheet-Format; sonst wird
+   * das erste Blatt mit erkennbaren Spalten als Haushaltsbuch/Bank-Export gelesen.
+   */
+  function ausArbeitsmappe(blaetter, dateiname = "") {
+    const ausgabenBlatt = blattSuchen(blaetter, "ausgaben");
+    if (ausgabenBlatt) {
+      const aus = leseSheetBuchungen(ausgabenBlatt, "aus");
+      const ein = leseSheetBuchungen(blattSuchen(blaetter, "einnahmen"), "ein");
+      const fixkosten = leseFixkosten(blattSuchen(blaetter, "fixkosten"));
+      const buchungen = aus.buchungen.concat(ein.buchungen)
+        .sort((a, b) => a.datum < b.datum ? -1 : a.datum > b.datum ? 1 : 0);
+      if (!buchungen.length && !fixkosten.length) throw new Error("KEINE_BUCHUNGEN");
+      buchungen.forEach((b, i) => { b.nr = i; });
+      return {
+        typ: "sheet", buchungen, fixkosten,
+        anzahlAusgaben: aus.buchungen.length, anzahlEinnahmen: ein.buchungen.length,
+        uebersprungen: aus.uebersprungen + ein.uebersprungen,
+        von: buchungen.length ? buchungen[0].datum : null,
+        bis: buchungen.length ? buchungen[buchungen.length - 1].datum : null,
+      };
+    }
+    let letzterFehler = new Error("KEINE_SPALTEN");
+    for (const blatt of blaetter) {
+      try {
+        return { typ: "tabelle", fixkosten: [], ...buchungenAusTabelle(blatt.zeilen, dateiname) };
+      } catch (e) { letzterFehler = e; }
+    }
+    throw letzterFehler;
+  }
+
+  // Fixkosten als (geglättete) Monatsbuchungen, damit sie in Monatssummen,
+  // Sparquote und Kategorien mitzählen.
+  function fixBuchungen(fixkosten, monate) {
+    const liste = [];
+    for (const m of monate) {
+      for (const f of fixkosten) {
+        const art = fixArt(f.gruppe);
+        liste.push({
+          datum: `${m}-01`,
+          beschreibung: f.posten,
+          kategorieDatei: art === "einnahme" ? "Feste Einnahmen" : f.gruppe,
+          zahlungsmittelDatei: "Fixkosten",
+          konto: f.konto,
+          einnahme: art === "einnahme" ? f.proMonat : 0,
+          ausgabe: art === "einnahme" ? 0 : f.proMonat,
+          saldo: null,
+          fix: true,
+          transfer: art === "transfer" || art === "sparen",
+          sparen: art === "sparen",
+          nr: -1,
+        });
+      }
+    }
+    return liste;
+  }
+
+  // Welche Fixkosten werden in den nächsten Monaten fällig?
+  function faelligkeiten(fixkosten, abMonat, anzahl = 3) {
+    const r = [];
+    let m = abMonat;
+    for (let i = 0; i < anzahl; i++) {
+      const mo = +m.slice(5, 7);
+      const posten = fixkosten.filter(f => fixArt(f.gruppe) === "ausgabe" && f.haeufigkeit < 12 && f.faellig.includes(mo));
+      const monatlich = fixkosten.filter(f => fixArt(f.gruppe) === "ausgabe" && f.haeufigkeit >= 12);
+      r.push({
+        monat: m,
+        posten: posten.sort((a, b) => b.betrag - a.betrag),
+        summe: posten.reduce((s, f) => s + f.betrag, 0),
+        summeCler: posten.filter(f => f.ueberCler).reduce((s, f) => s + f.betrag, 0),
+        monatlichSumme: monatlich.reduce((s, f) => s + f.betrag, 0),
+      });
+      m = naechsterMonat(m);
+    }
+    return r;
+  }
+
+  // Monatliche Einzahlung, die der Cler-Topf braucht (alle Posten «Über Cler», geglättet)
+  function clerBedarfProMonat(fixkosten) {
+    return fixkosten.filter(f => f.ueberCler && fixArt(f.gruppe) === "ausgabe")
+      .reduce((s, f) => s + f.proMonat, 0);
+  }
+
+  // Simulation: reicht der Cler-Topf die nächsten 12 Monate?
+  function clerPrognose(fixkosten, startSaldo, einzahlung, abMonat, anzahl = 12) {
+    let saldo = startSaldo;
+    let m = abMonat;
+    const verlauf = [];
+    for (let i = 0; i < anzahl; i++) {
+      const mo = +m.slice(5, 7);
+      const raus = fixkosten
+        .filter(f => f.ueberCler && fixArt(f.gruppe) === "ausgabe" && f.faellig.includes(mo))
+        .reduce((s, f) => s + f.betrag, 0);
+      saldo = saldo + einzahlung - raus;
+      verlauf.push({ monat: m, raus, saldo });
+      m = naechsterMonat(m);
+    }
+    return verlauf;
+  }
+
+  // Budgets: Zeilen "Kategorie = Betrag"
+  function leseBudgets(textBudgets) {
+    const b = {};
+    for (const zeile of String(textBudgets || "").split(/\r?\n/)) {
+      const m = zeile.match(/^\s*([^#=:]+?)\s*[=:]\s*([\d'’.,\s]+)\s*$/);
+      if (m) { const v = zuBetrag(m[2]); if (v) b[m[1].trim()] = v; }
+    }
+    return b;
+  }
+
   window.Analyse = {
-    buchungenAusTabelle, zuordnen, berechne, zeitraum, durchschnittVorher, warnungen,
+    buchungenAusTabelle, ausArbeitsmappe, zuordnen, berechne, zeitraum, durchschnittVorher, warnungen,
+    fixBuchungen, faelligkeiten, clerBedarfProMonat, clerPrognose, leseBudgets, monatVon, naechsterMonat,
     STANDARD_REGELN,
     _test: { zuDatum, zuBetrag, normName },
   };
