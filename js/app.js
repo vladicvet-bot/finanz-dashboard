@@ -6,6 +6,19 @@
 (function () {
   "use strict";
 
+  // Fehlt ein Teil der App (z.B. von einem Werbe-/Tracking-Blocker blockiert), klar melden statt still abbrechen
+  if (!window.Analyse || !window.TabellenLeser) {
+    const el = document.getElementById("meldung");
+    if (el) {
+      el.classList.add("fehler");
+      el.hidden = false;
+      el.textContent = "Ein Teil der App konnte nicht geladen werden. Häufigste Ursache: ein Werbe- oder Tracking-Blocker " +
+        "(z.B. uBlock, AdBlock). Bitte für diese Seite ausschalten und neu laden – oder die Seite in einem anderen Browser öffnen. " +
+        "Hilft das nicht: Seite mit Ctrl + Shift + R neu laden.";
+    }
+    return;
+  }
+
   // ---------- Zahlen- und Datumsformat (Schweiz) ----------
 
   const chfFormat = new Intl.NumberFormat("de-CH", { style: "currency", currency: "CHF" });

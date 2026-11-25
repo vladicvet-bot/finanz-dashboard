@@ -175,7 +175,7 @@ So schaltest du die Seite ein:
 index.html                  Die Webseite (mit Netzwerk-Sperre)
 css/style.css               Aussehen (hell/dunkel, iPhone/iPad/PC)
 js/xlsx-reader.js           Liest Excel und CSV direkt im Browser
-js/analyse.js               Erkennt Spalten/Bank-Formate, Kategorie-Regeln, rechnet Monate,
+js/rechnen.js               Erkennt Spalten/Bank-Formate, Kategorie-Regeln, rechnet Monate,
                             Sparquote, Kontostand und Warnungen aus
 js/app.js                   Bedienung, Diagramme und Speichern auf dem Gerät
 vendor/chart.umd.min.js     Diagramm-Bibliothek Chart.js 4.5.1 (MIT-Lizenz)
