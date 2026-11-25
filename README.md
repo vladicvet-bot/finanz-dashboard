@@ -18,6 +18,30 @@ Eine Seite, die man von oben nach unten liest. Jede Karte beantwortet eine Frage
 
 Unter **«Mehr Details»** (zugeklappt) findest du die Monatsverläufe, die Sparquote, die Fixkosten nach Gruppe, den Cler-Topf, die Kennzahlen aus dem Sheet und alle Buchungen.
 
+## Vermögen erfassen (jeden Monat am 27.)
+
+Oben schaltest du zwischen **«Übersicht»** und **«Vermögen»** um.
+
+**So erfasst du:**
+1. Tippe in der Ansicht «Vermögen» auf **«＋ Erfassung vom 27.»**. Der Stichtag ist schon auf den 27. des laufenden Monats gesetzt.
+2. Trag pro Konto den **Stand CHF** ein. Leere Felder bedeuten «nicht erfasst», es wird nichts geschätzt.
+   - **Schulden** (Kreditkarte) darfst du positiv eintippen, sie werden negativ gespeichert.
+   - **Eingezahlt CHF** gibt es nur bei Vorsorge und Investment, das Feld ist freiwillig.
+   - **Fremdwährung:** den CHF-Wert eintragen, den Originalbetrag in die Notiz (z.B. `EUR 120.00`).
+3. Trag die **Pikett-Entschädigung** des Monats ein: Anzahl Dienste, Betrag, ob schon auf die Kreditkarte überwiesen. Sie zählt als Einnahme des Monats.
+4. Nach dem Speichern zeigt die App die neuen Zeilen **fürs Sheet** an. Mit **«Kopieren»** übernimmst du sie und fügst sie im Sheet in die Blätter «Vermögen» bzw. «Einnahmen» ein. So bleibt dein Sheet die Hauptquelle, und alle Geräte bleiben synchron.
+
+**Regeln:**
+- Neue Erfassungen werden **immer angehängt**. Gibt es für einen Stichtag und ein Konto schon einen Wert, wird er **nie überschrieben**.
+- Werte aus dem Sheet und Werte aus der App werden zusammengeführt, ohne Doppelte (gleicher Stichtag + Konto).
+- Das **Total** ist die Summe aller Stände: Schulden zählen negativ, Kinderkonten zählen mit und werden zusätzlich separat gezeigt («ohne Kinder»).
+- **«± Vormonat»** vergleicht nur Konten, die in beiden Monaten erfasst sind. Neu erfasste Konten werden ausgewiesen, aber nicht mitgerechnet.
+- Ist ein Konto an einem Stichtag nicht erfasst, verwendet das Total dessen letzten bekannten Stand. In der Tabelle ist das markiert.
+
+**Startdaten oder Verlauf übernehmen:** Mit **«Daten einfügen»** fügst du eine Tabelle ein, eine Zeile pro Konto: `Stichtag · Konto / Anlage · Art · Stand CHF · Eingezahlt CHF · Notiz`. Die Spalten sind mit Tabulator getrennt (aus Excel/Sheets kopiert) oder mit Semikolon. Daraus lernt die App auch deine Kontenliste fürs Formular.
+
+**Gespeichert** werden die Erfassungen nur in diesem Browser auf diesem Gerät. Kopier sie darum nach jeder Erfassung ins Sheet. Mit «Für Sheet kopieren» bekommst du jederzeit alle hier erfassten Werte.
+
 ## Empfohlen: dein Finanz-Sheet als Excel
 
 Am besten liest das Dashboard dein Finanz-Sheet (Google Sheets oder Excel) mit diesen Blättern:

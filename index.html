@@ -57,6 +57,7 @@
           <label class="knopf knopf-primaer knopf-gross" for="datei">Dateien wählen</label>
           <button class="knopf knopf-gross" type="button" id="beispiel">Beispieldaten ansehen</button>
         </div>
+        <p class="start-oder"><button class="link-knopf" type="button" id="start-vermoegen">Nur Vermögen erfassen →</button></p>
         <p class="klein">Finanz-Sheet als Excel (Blätter «Ausgaben», «Einnahmen», «Fixkosten»), Haushaltsbuch mit den Spalten Datum, Kategorie, Beschreibung, Einnahmen (CHF), Ausgaben (CHF), Zahlungsmittel, Saldo – oder Bank-Export (z.B. Raiffeisen CSV). Mehrere Dateien gleichzeitig sind möglich.</p>
       </div>
     </section>
@@ -64,7 +65,11 @@
     <!-- Dashboard -->
     <section class="dashboard" id="dashboard" hidden>
       <div class="steuerung">
-        <div class="monatswahl">
+        <div class="umschalter ansicht-wahl" role="tablist" aria-label="Ansicht">
+          <button type="button" role="tab" data-ansicht="uebersicht" aria-pressed="true">Übersicht</button>
+          <button type="button" role="tab" data-ansicht="vermoegen" aria-pressed="false">Vermögen</button>
+        </div>
+        <div class="monatswahl" id="monatswahl">
           <button class="knopf knopf-icon" type="button" id="monat-zurueck" aria-label="Vorheriger Monat">
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg>
           </button>
@@ -75,7 +80,7 @@
         </div>
       </div>
 
-      <div class="raster">
+      <div class="raster" id="ansicht-uebersicht">
 
         <!-- Trend-Kacheln: Einnahmen · Ausgaben · Sparen -->
         <div class="kacheln breit" id="kacheln">
@@ -141,37 +146,18 @@
         <article class="karte breit held" id="karte-vermoegen">
           <div class="held-kopf">
             <div>
-              <h2>Nettovermögen</h2>
+              <h2>Vermögen total</h2>
               <div class="held-zahl" id="vm-total">–</div>
               <div class="held-unter" id="vm-delta"></div>
             </div>
-            <p class="held-info" id="vm-stand"></p>
+            <div class="held-rechts">
+              <p class="held-info" id="vm-stand"></p>
+              <button class="link-knopf" type="button" data-zu-vermoegen>Zum Vermögen →</button>
+            </div>
           </div>
           <div class="diagramm klein-diagramm" id="vm-diagramm"><canvas id="chart-vermoegen" role="img" aria-label="Balkendiagramm Nettovermögen pro Monat"></canvas></div>
           <p class="hinweis" id="vm-leer" hidden>Trag deine Kontostände im Blatt <strong>«Vermögen»</strong> deines Sheets ein (eine Zeile pro Konto und Monat). Dann siehst du hier dein ganzes Vermögen.</p>
         </article>
-
-        <!-- 5) Wo liegt mein Geld? -->
-        <article class="karte" id="karte-verteilung" hidden>
-          <div class="karte-kopf">
-            <h2>Wo liegt mein Geld?</h2>
-            <span class="karte-zusatz" id="verteilung-stand"></span>
-          </div>
-          <div id="verteilung"></div>
-        </article>
-
-        <!-- 6) Lohnen sich meine Investments? -->
-        <article class="karte" id="karte-invest" hidden>
-          <div class="karte-kopf">
-            <h2>Investments &amp; Vorsorge</h2>
-            <div class="legende">
-              <span><i class="punkt grau"></i>Eingezahlt</span>
-              <span><i class="punkt s1"></i>Wert heute</span>
-            </div>
-          </div>
-          <ul class="invest" id="invest"></ul>
-        </article>
-
 
         <!-- Details (zugeklappt) -->
         <article class="karte breit">
@@ -315,6 +301,144 @@
           </details>
         </article>
       </div>
+
+      <!-- ===================== Ansicht «Vermögen» ===================== -->
+      <div class="raster" id="ansicht-vermoegen" hidden>
+        <article class="karte breit held">
+          <div class="held-kopf">
+            <div>
+              <h2>Vermögen total</h2>
+              <div class="held-zahl" id="v-total">–</div>
+              <div class="held-unter" id="v-delta"></div>
+              <div class="held-unter klein" id="v-teile"></div>
+            </div>
+            <div class="held-rechts">
+              <p class="held-info" id="v-stichtag"></p>
+              <button class="knopf knopf-primaer" type="button" id="v-erfassen">＋ Erfassung vom 27.</button>
+            </div>
+          </div>
+          <p class="hinweis" id="v-uebernommen" hidden></p>
+          <p class="hinweis" id="v-leer" hidden>Noch keine Vermögenswerte. Starte mit «Erfassung vom 27.» oder füge deine Startdaten mit «Daten einfügen» ein.</p>
+          <div class="v-aktionen">
+            <button class="knopf knopf-klein" type="button" id="v-import">Daten einfügen</button>
+            <button class="knopf knopf-klein" type="button" id="v-kopieren-alle">Für Sheet kopieren</button>
+          </div>
+        </article>
+
+        <article class="karte breit">
+          <div class="karte-kopf">
+            <h2>Verlauf</h2>
+            <div class="legende" id="v-legende"></div>
+          </div>
+          <div class="diagramm"><canvas id="chart-v-verlauf" role="img" aria-label="Verlauf des Vermögens pro Art und total"></canvas></div>
+          <p class="hinweis">Balken: Summe pro Art (Schulden unter der Null-Linie). Linie: Total.</p>
+        </article>
+
+        <!-- 5) Wo liegt mein Geld? -->
+        <article class="karte" id="karte-verteilung">
+          <div class="karte-kopf">
+            <h2>Summe pro Art</h2>
+            <span class="karte-zusatz" id="verteilung-stand"></span>
+          </div>
+          <div id="verteilung"></div>
+        </article>
+
+        <!-- 6) Lohnen sich meine Investments? -->
+        <article class="karte" id="karte-invest" hidden>
+          <div class="karte-kopf">
+            <h2>Investments &amp; Vorsorge</h2>
+            <div class="legende">
+              <span><i class="punkt grau"></i>Eingezahlt</span>
+              <span><i class="punkt s1"></i>Wert heute</span>
+            </div>
+          </div>
+          <ul class="invest" id="invest"></ul>
+        </article>
+
+
+
+        <article class="karte breit">
+          <div class="karte-kopf">
+            <h2>Konten am Stichtag</h2>
+            <span class="karte-zusatz" id="v-konten-stand"></span>
+          </div>
+          <div class="tabelle-rahmen">
+            <table class="tabelle v-tabelle">
+              <thead><tr><th>Konto / Anlage</th><th>Art</th><th class="zahl">Stand CHF</th><th class="zahl">± Vormonat</th><th class="zahl">Gewinn</th></tr></thead>
+              <tbody id="v-konten"></tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="karte" id="karte-pikett">
+          <div class="karte-kopf"><h2>Pikett</h2><span class="karte-zusatz">am 27. erfasst</span></div>
+          <ul class="kurzliste" id="v-pikett"></ul>
+        </article>
+      </div>
+
+      <!-- Formular: Erfassung vom 27. -->
+      <dialog class="dialog" id="dlg-erfassung" aria-labelledby="erf-titel">
+        <form method="dialog" id="form-erfassung">
+          <div class="dialog-kopf">
+            <h2 id="erf-titel">Erfassung vom 27.</h2>
+            <button class="knopf knopf-icon" type="button" data-schliessen aria-label="Schliessen">✕</button>
+          </div>
+          <label class="erf-stichtag">Stichtag <input type="date" id="erf-datum" required></label>
+          <p class="klein-hinweis">Leer lassen = nicht erfasst (wird nicht gespeichert). Schulden darfst du positiv eintippen, sie werden negativ gespeichert. Fremdwährung: CHF-Wert eintragen, Original in die Notiz (z.B. «EUR 120.00»).</p>
+          <div class="erf-liste" id="erf-liste"></div>
+          <button class="link-knopf" type="button" id="erf-konto-neu">＋ Konto hinzufügen</button>
+
+          <fieldset class="erf-pikett">
+            <legend>Pikett-Entschädigung dieses Monats</legend>
+            <label>Anzahl Dienste <input type="number" id="erf-p-anzahl" min="0" step="1" inputmode="numeric"></label>
+            <label>Betrag CHF <input type="number" id="erf-p-betrag" min="0" step="0.05" inputmode="decimal"></label>
+            <label class="erf-check"><input type="checkbox" id="erf-p-kk"> schon auf die Kreditkarte überwiesen</label>
+          </fieldset>
+
+          <p class="meldung-inline" id="erf-meldung" hidden></p>
+          <div class="dialog-fuss">
+            <button class="knopf" type="button" data-schliessen>Abbrechen</button>
+            <button class="knopf knopf-primaer" type="submit" id="erf-speichern">Speichern</button>
+          </div>
+        </form>
+      </dialog>
+
+      <!-- Daten einfügen -->
+      <dialog class="dialog" id="dlg-import" aria-labelledby="imp-titel">
+        <form method="dialog" id="form-import">
+          <div class="dialog-kopf">
+            <h2 id="imp-titel">Vermögensdaten einfügen</h2>
+            <button class="knopf knopf-icon" type="button" data-schliessen aria-label="Schliessen">✕</button>
+          </div>
+          <p class="klein-hinweis">Eine Zeile pro Konto: <code>Stichtag · Konto / Anlage · Art · Stand CHF · Eingezahlt CHF · Notiz</code>, getrennt mit Tabulator (aus Excel/Sheets kopiert) oder Semikolon. Datum als TT.MM.JJJJ. Bestehende Erfassungen (gleicher Stichtag + Konto) werden nicht überschrieben.</p>
+          <textarea id="imp-text" rows="10" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Daten zum Einfügen"></textarea>
+          <p class="meldung-inline" id="imp-meldung" hidden></p>
+          <div class="dialog-fuss">
+            <button class="knopf" type="button" data-schliessen>Abbrechen</button>
+            <button class="knopf knopf-primaer" type="submit">Einfügen</button>
+          </div>
+        </form>
+      </dialog>
+
+      <!-- Für Sheet kopieren -->
+      <dialog class="dialog" id="dlg-kopieren" aria-labelledby="kop-titel">
+        <form method="dialog">
+          <div class="dialog-kopf">
+            <h2 id="kop-titel">Für dein Sheet</h2>
+            <button class="knopf knopf-icon" type="button" data-schliessen aria-label="Schliessen">✕</button>
+          </div>
+          <p class="klein-hinweis" id="kop-info"></p>
+          <h3 class="unter-titel">Blatt «Vermögen»</h3>
+          <textarea id="kop-vermoegen" rows="6" readonly spellcheck="false" aria-label="Zeilen für das Blatt Vermögen"></textarea>
+          <button class="knopf knopf-klein" type="button" data-kopiere="kop-vermoegen">Kopieren</button>
+          <div id="kop-pikett-block">
+            <h3 class="unter-titel">Blatt «Einnahmen» (Pikett)</h3>
+            <textarea id="kop-pikett" rows="2" readonly spellcheck="false" aria-label="Zeile für das Blatt Einnahmen"></textarea>
+            <button class="knopf knopf-klein" type="button" data-kopiere="kop-pikett">Kopieren</button>
+          </div>
+          <div class="dialog-fuss"><button class="knopf knopf-primaer" type="button" data-schliessen>Fertig</button></div>
+        </form>
+      </dialog>
     </section>
   </main>
 

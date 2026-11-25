@@ -7,7 +7,7 @@
  * Nach Änderungen am Code: VERSION erhöhen, damit Geräte die neue
  * Version laden.
  */
-const VERSION = "finanz-dashboard-v8";
+const VERSION = "finanz-dashboard-v9";
 const DATEIEN = [
   "./",
   "index.html",
