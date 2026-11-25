@@ -125,7 +125,7 @@
           if (e.fixkosten.length) neueFixkosten = e.fixkosten;
           if (Object.keys(e.budgets).length) neueBudgets = e.budgets;
           if (e.kennzahlen && e.kennzahlen.werte.length) neueKennzahlen = e.kennzahlen;
-          if (e.vermoegen.length) neuesVermoegen = e.vermoegen;
+          if (e.vermoegen.length) neuesVermoegen = window.Analyse.vermoegenZusammenfuehren(e.vermoegen, neuesVermoegen);
           t = `✓ ${name}: ${e.anzahlAusgaben} Ausgaben, ${e.anzahlEinnahmen} Einnahmen, ${e.fixkosten.length} Fixkosten-Posten`;
           if (e.vermoegen.length) t += `, ${new Set(e.vermoegen.map(v => v.konto)).size} Konten/Anlagen im Vermögen`;
           if (e.von) t += ` · ${Format.datum(e.von)} – ${Format.datum(e.bis)}`;
@@ -282,7 +282,11 @@
     const konten = zustand.daten.konten;
     $("status").textContent = q.beispiel
       ? "Beispieldaten (erfunden)"
-      : `${istSheet ? "Finanz-Sheet" : konten.length === 1 ? konten[0] : `${konten.length} Konten`} · auf diesem Gerät gespeichert`;
+      : `${nurVermoegenGeladen() ? "Nur Vermögen" : istSheet ? "Finanz-Excel" : konten.length === 1 ? konten[0] : `${konten.length} Konten`} · auf diesem Gerät gespeichert`;
+    // Übersicht ohne Einnahmen/Ausgaben: Hinweis statt leerer Nullen
+    const leer = nurVermoegenGeladen();
+    $("uebersicht-leer").hidden = !leer;
+    for (const id of ["kacheln", "karte-fluss", "karte-gruppen", "spalte-budget-beachten"]) $(id).hidden = leer;
     $("datei-text").textContent = "Datei hinzufügen";
     kontenListe();
     offeneBuchungen();
@@ -957,6 +961,12 @@
       }));
   }
 
+  // Sind nur Vermögenswerte geladen (keine Buchungen, keine Fixkosten, kein Pikett)?
+  function nurVermoegenGeladen() {
+    return !zustand.quelle?.beispiel && !zustand.buchungen.length && !zustand.fixkosten.length
+      && !(zustand.vmLokal.pikett || []).length;
+  }
+
   // ---------- Ansicht wechseln ----------
 
   function zeigeAnsicht(name) {
@@ -1545,7 +1555,7 @@
   if (zustand.daten) {
     let a = "uebersicht";
     try { a = sessionStorage.getItem("finanzDashboard.ansicht") || a; } catch { /* egal */ }
-    zeigeAnsicht(a);
+    zeigeAnsicht(nurVermoegenGeladen() ? "vermoegen" : a);
   }
 
   // Offline-Funktion (nur über https, z.B. GitHub Pages)

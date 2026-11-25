@@ -82,6 +82,16 @@
 
       <div class="raster" id="ansicht-uebersicht">
 
+        <!-- Hinweis, wenn nur Vermögen geladen ist -->
+        <article class="karte breit" id="uebersicht-leer" hidden>
+          <h2>Einnahmen und Ausgaben fehlen noch</h2>
+          <p class="hinweis">Auf diesem Gerät sind bisher nur Vermögenswerte geladen. Für Einnahmen, Ausgaben, Geldfluss und Budget wähle dein Finanz-Excel (mit den Blättern «Ausgaben», «Einnahmen», «Fixkosten») mit <strong>«Datei hinzufügen»</strong> oben rechts. Deine Vermögenswerte bleiben dabei erhalten.</p>
+          <div class="v-aktionen">
+            <label class="knopf knopf-primaer knopf-klein" for="datei">Finanz-Excel wählen</label>
+            <button class="knopf knopf-klein" type="button" data-zu-vermoegen>Zum Vermögen →</button>
+          </div>
+        </article>
+
         <!-- Trend-Kacheln: Einnahmen · Ausgaben · Sparen -->
         <div class="kacheln breit" id="kacheln">
           <article class="kachel" data-art="ein">
@@ -124,7 +134,7 @@
           <p class="hinweis">Antippen zeigt die einzelnen Kategorien.</p>
         </article>
 
-        <div class="spalte">
+        <div class="spalte" id="spalte-budget-beachten">
         <!-- 3) Bin ich im Budget? -->
         <article class="karte" id="karte-budget" hidden>
           <div class="karte-kopf">
