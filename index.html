@@ -394,6 +394,17 @@
             <h2>Verlauf</h2>
             <div class="legende" id="v-legende"></div>
           </div>
+          <div class="v-filter">
+            <div class="umschalter klein" id="v-zeitraum" role="group" aria-label="Zeitraum">
+              <button type="button" data-zr="3">3M</button>
+              <button type="button" data-zr="6">6M</button>
+              <button type="button" data-zr="ytd">YTD</button>
+              <button type="button" data-zr="12">1J</button>
+              <button type="button" data-zr="alle">Max</button>
+            </div>
+            <label class="v-ab">Beginnt ab <select id="v-ab"></select></label>
+          </div>
+          <p class="v-zr-delta" id="v-zr-delta"></p>
           <div class="diagramm"><canvas id="chart-v-verlauf" role="img" aria-label="Verlauf des Vermögens pro Art und total"></canvas></div>
           <p class="hinweis">Balken: Summe pro Art (Schulden unter der Null-Linie). Linie: Total.</p>
         </article>

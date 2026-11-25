@@ -854,7 +854,11 @@ ${artWahl(k)}</td>
 
     // Verlauf: gestapelte Balken pro Art + Linie Total (eine Achse, CHF)
     if (!window.Chart) return;
-    const bereich = V.monate.slice(-24);
+    const bereich = verlaufBereich(V);
+    if (!bereich.length) {
+      if (diagramme["chart-v-verlauf"]) { diagramme["chart-v-verlauf"].destroy(); delete diagramme["chart-v-verlauf"]; }
+      return;
+    }
     const arten = A.ARTEN.filter(art => bereich.some(x => V.proMonat[x].nachArt[art]));
     $("v-legende").innerHTML = arten.map(art => `<span><i class="punkt f-${ART_FARBE[art]}"></i>${esc(ART_PLURAL[art] || art)}</span>`).join("")
       + '<span><i class="linie s-text"></i>Total</span>';
@@ -888,6 +892,42 @@ ${artWahl(k)}</td>
       options: opt,
     });
   }
+
+  // Zeitraum-Filter für den Verlauf (gemerkt auf diesem Gerät)
+  const SPEICHER_VERLAUF = "finanzDashboard.vmVerlauf.v1";
+  const verlaufEinst = { zr: "alle", ab: "auto", ...(speicherLesen(SPEICHER_VERLAUF) || {}) };
+  // Automatischer Start: erster Monat, in dem mindestens die Hälfte der heutigen Konten erfasst ist
+  function autoStart(V) {
+    const letzte = V.proMonat[V.monate[V.monate.length - 1]];
+    const n = letzte.konten.filter(k => !k.uebernommen).length;
+    return V.monate.find(m => V.proMonat[m].konten.filter(k => !k.uebernommen).length >= Math.max(1, n / 2)) || V.monate[0];
+  }
+  function verlaufBereich(V) {
+    const auto = autoStart(V);
+    const ab = verlaufEinst.ab !== "auto" && V.monate.includes(verlaufEinst.ab) ? verlaufEinst.ab : auto;
+    $("v-ab").innerHTML = `<option value="auto">Automatisch (${Format.monatKurz(auto)})</option>`
+      + V.monate.map(m => `<option value="${m}">${Format.monatKurz(m)}</option>`).join("");
+    $("v-ab").value = verlaufEinst.ab !== "auto" && V.monate.includes(verlaufEinst.ab) ? verlaufEinst.ab : "auto";
+    let liste = V.monate.filter(m => m >= ab);
+    const zr = verlaufEinst.zr;
+    if (zr === "ytd") { const jahr = V.monate[V.monate.length - 1].slice(0, 4); liste = liste.filter(m => m.startsWith(jahr)); }
+    else if (zr !== "alle") liste = liste.slice(-Number(zr));
+    for (const b of $("v-zeitraum").querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.zr === zr));
+    // Veränderung im gewählten Zeitraum
+    const d = $("v-zr-delta");
+    if (liste.length > 1) {
+      const von = V.proMonat[liste[0]].total, bis = V.proMonat[liste[liste.length - 1]].total, diff = bis - von;
+      d.innerHTML = `<strong class="${diff >= 0 ? "besser" : "schlechter"}">${diff >= 0 ? "+" : "−"}${Format.chf(Math.abs(diff))}${von > 0 ? ` (${diff >= 0 ? "+" : "−"}${Format.prozent(Math.abs(diff / von))})` : ""}</strong> seit ${Format.monat(liste[0])}`;
+    } else d.textContent = liste.length ? "Für diesen Zeitraum gibt es erst einen Monat." : "Keine Werte in diesem Zeitraum.";
+    return liste;
+  }
+  $("v-zeitraum").addEventListener("click", e => {
+    const b = e.target.closest("[data-zr]"); if (!b) return;
+    verlaufEinst.zr = b.dataset.zr; speicherSchreiben(SPEICHER_VERLAUF, verlaufEinst); vermoegenAnsicht();
+  });
+  $("v-ab").addEventListener("change", e => {
+    verlaufEinst.ab = e.target.value; speicherSchreiben(SPEICHER_VERLAUF, verlaufEinst); vermoegenAnsicht();
+  });
 
   function pikettListe() {
     const liste = [...zustand.vmLokal.pikett].sort((a, b) => b.datum.localeCompare(a.datum)).slice(0, 12);

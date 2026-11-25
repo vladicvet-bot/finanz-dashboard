@@ -51,6 +51,7 @@ Oben schaltest du zwischen **«Übersicht»** und **«Vermögen»** um.
 - **«± Vormonat»** vergleicht nur Konten, die in beiden Monaten erfasst sind. Neu erfasste Konten werden ausgewiesen, aber nicht mitgerechnet.
 - Ist ein Konto an einem Stichtag nicht erfasst, verwendet das Total dessen letzten bekannten Stand. In der Tabelle ist das markiert.
 - **Art selbst wählen:** In der Tabelle «Konten am Stichtag» kannst du bei jedem Konto die Art ändern (Konto, Rücklage, Vorsorge, Investment, Schulden, Kinder, Andere), falls es falsch eingeordnet ist. Die Änderung gilt für alle Monate und nur auf diesem Gerät. Neue Erfassungen und «Für Excel kopieren» verwenden schon die neue Art. Wählst du wieder die ursprüngliche Art, verschwindet die Anpassung.
+- **Verlauf:** Mit **3M · 6M · YTD · 1J · Max** wählst du den Zeitraum. Darüber steht, wie viel dein Vermögen in diesem Zeitraum gewachsen ist. «Beginnt ab» legt den ersten Monat fest. «Automatisch» beginnt beim ersten Monat, in dem mindestens die Hälfte deiner Konten erfasst ist. Ältere, unvollständige Monate werden so ausgeblendet.
 
 **Startdaten oder Verlauf übernehmen:** Mit **«Daten einfügen»** fügst du eine Tabelle ein, eine Zeile pro Konto: `Stichtag · Konto / Anlage · Art · Stand CHF · Eingezahlt CHF · Notiz`. Die Spalten sind mit Tabulator getrennt (aus Excel/Sheets kopiert) oder mit Semikolon. Daraus lernt die App auch deine Kontenliste fürs Formular.
 
