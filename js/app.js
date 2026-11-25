@@ -639,7 +639,7 @@
     $("v-total").textContent = Format.chf(vm.total);
     $("v-delta").innerHTML = vor ? deltaText(vm) : "";
     $("v-teile").textContent = vm.kinder ? `ohne Kinder ${Format.chf(vm.ohneKinder)} · davon Kinder ${Format.chf(vm.kinder)}` : "";
-    $("v-stichtag").textContent = `Stichtag ${Format.datum(vm.stichtag || `${m}-27`)}`;
+    $("v-stichtag").textContent = `Stichtag ${Format.datum(vm.stichtag || `${m}-30`)}`;
     $("v-uebernommen").hidden = !vm.uebernommen;
     $("v-uebernommen").textContent = vm.uebernommen
       ? `${vm.uebernommen} ${vm.uebernommen === 1 ? "Konto ist" : "Konten sind"} an diesem Stichtag nicht erfasst – fürs Total wird der letzte bekannte Stand verwendet (in der Tabelle markiert).` : "";
@@ -739,10 +739,16 @@
     $("v-pikett").innerHTML = liste.map(p => `<li><span>${Format.monat(p.datum.slice(0, 7))} · ${p.anzahl ?? "?"} ${p.anzahl === 1 ? "Dienst" : "Dienste"}${p.aufKK ? " · auf KK überwiesen" : " · noch nicht auf KK"}</span><span>${Format.chf(p.betrag)}</span></li>`).join("");
   }
 
-  // ---------- Erfassung vom 27. ----------
+  // ---------- Erfassung vom 30. ----------
 
   const ISO = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  const stichtag27 = () => { const h = new Date(); return ISO(new Date(h.getFullYear(), h.getMonth(), 27)); };
+  // Stichtag: der 30. des laufenden Monats (im Februar der letzte Tag)
+  const STICHTAG_TAG = 30;
+  const stichtagMonat = () => {
+    const h = new Date();
+    const letzter = new Date(h.getFullYear(), h.getMonth() + 1, 0).getDate();
+    return ISO(new Date(h.getFullYear(), h.getMonth(), Math.min(STICHTAG_TAG, letzter)));
+  };
 
   // Kontenliste fürs Formular: alle bekannten Konten (aus Sheet + lokal + selbst hinzugefügt), nach Art sortiert
   function bekannteKonten() {
@@ -769,7 +775,7 @@
       melde("Bei den Beispieldaten kann nichts erfasst werden. Lade zuerst dein Sheet oder tippe auf der Startseite auf «Nur Vermögen erfassen».", true);
       return;
     }
-    $("erf-datum").value = stichtag27();
+    $("erf-datum").value = stichtagMonat();
     const konten = bekannteKonten();
     $("erf-liste").innerHTML = konten.length ? konten.map(erfassungZeile).join("")
       : '<p class="klein-hinweis">Noch keine Konten bekannt. Füge zuerst deine Startdaten ein («Daten einfügen») oder lade dein Sheet – oder lege unten Konten an.</p>';

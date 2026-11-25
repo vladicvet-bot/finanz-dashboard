@@ -18,12 +18,12 @@ Eine Seite, die man von oben nach unten liest. Jede Karte beantwortet eine Frage
 
 Unter **«Mehr Details»** (zugeklappt) findest du die Monatsverläufe, die Sparquote, die Fixkosten nach Gruppe, den Cler-Topf, die Kennzahlen aus dem Sheet und alle Buchungen.
 
-## Vermögen erfassen (jeden Monat am 27.)
+## Vermögen erfassen (jeden Monat am 30.)
 
 Oben schaltest du zwischen **«Übersicht»** und **«Vermögen»** um.
 
 **So erfasst du:**
-1. Tippe in der Ansicht «Vermögen» auf **«＋ Erfassung vom 27.»**. Der Stichtag ist schon auf den 27. des laufenden Monats gesetzt.
+1. Tippe in der Ansicht «Vermögen» auf **«＋ Erfassung vom 30.»**. Der Stichtag ist schon auf den 30. des laufenden Monats gesetzt (im Februar auf den letzten Tag).
 2. Trag pro Konto den **Stand CHF** ein. Leere Felder bedeuten «nicht erfasst», es wird nichts geschätzt.
    - **Schulden** (Kreditkarte) darfst du positiv eintippen, sie werden negativ gespeichert.
    - **Eingezahlt CHF** gibt es nur bei Vorsorge und Investment, das Feld ist freiwillig.
