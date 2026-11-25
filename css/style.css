@@ -733,3 +733,12 @@ input[type="date"] { font: inherit; font-size: 16px; color: var(--text); backgro
 .v-zr-delta .besser { color: var(--gut-text); }
 .v-zr-delta .schlechter { color: var(--kritisch); }
 @media (max-width: 480px) { .v-filter .umschalter { width: 100%; } .v-filter .umschalter button { flex: 1; } }
+
+/* Rechnungsmonate ändern */
+.fx-faellig-knopf { min-height: 28px; padding: 0 2px; font-size: inherit; font-weight: 600; }
+.fx-monate { flex: 1 1 100%; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; padding: 10px; border-radius: 10px; background: var(--flaeche-2); }
+.fx-monate button[data-monat] { min-height: 36px; border-radius: 8px; border: 1px solid var(--rand); background: var(--flaeche); color: var(--text); font: inherit; font-size: 0.875rem; cursor: pointer; }
+.fx-monate button[aria-pressed="true"] { background: var(--s1); border-color: transparent; color: #fff; font-weight: 700; }
+.fx-monate-fuss { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.fx-monate-fuss .klein-hinweis { flex: 1 1 180px; }
+@media (min-width: 700px) { .fx-monate { grid-template-columns: repeat(12, minmax(0, 1fr)); } }
