@@ -67,6 +67,7 @@
       <div class="steuerung">
         <div class="umschalter ansicht-wahl" role="tablist" aria-label="Ansicht">
           <button type="button" role="tab" data-ansicht="uebersicht" aria-pressed="true">Übersicht</button>
+          <button type="button" role="tab" data-ansicht="fixkosten" aria-pressed="false">Fixkosten</button>
           <button type="button" role="tab" data-ansicht="vermoegen" aria-pressed="false">Vermögen</button>
         </div>
         <div class="monatswahl" id="monatswahl">
@@ -309,6 +310,54 @@
               <button class="knopf knopf-gefahr" type="button" id="loeschen">Daten von diesem Gerät löschen</button>
             </div>
           </details>
+        </article>
+      </div>
+
+      <!-- ===================== Ansicht «Fixkosten» ===================== -->
+      <div class="raster" id="ansicht-fixkosten" hidden>
+        <article class="karte breit" id="fx-leer" hidden>
+          <h2>Noch keine Fixkosten geladen</h2>
+          <p class="hinweis">Wähle dein Finanz-Excel mit dem Blatt «Fixkosten» über <strong>«Datei hinzufügen»</strong> oben rechts. Deine Vermögenswerte bleiben dabei erhalten.</p>
+          <div class="v-aktionen"><label class="knopf knopf-primaer knopf-klein" for="datei">Finanz-Excel wählen</label></div>
+        </article>
+
+        <article class="karte breit held" id="fx-held">
+          <div class="held-kopf">
+            <div>
+              <h2>Fixkosten pro Monat</h2>
+              <div class="held-zahl" id="fx-monat">–</div>
+              <div class="held-unter" id="fx-jahr"></div>
+              <div class="held-unter klein" id="fx-ausserdem"></div>
+            </div>
+            <div class="fx-anteil" id="fx-anteil"></div>
+          </div>
+          <div class="fx-potenzial" id="fx-potenzial"></div>
+        </article>
+
+        <article class="karte">
+          <div class="karte-kopf"><h2>Nach Gruppe</h2><span class="karte-zusatz">pro Jahr</span></div>
+          <ul class="balken" id="fx-gruppen"></ul>
+        </article>
+
+        <article class="karte">
+          <div class="karte-kopf"><h2>Kleine Posten summieren sich</h2></div>
+          <div id="fx-klein"></div>
+        </article>
+
+        <article class="karte breit">
+          <div class="karte-kopf">
+            <h2>Posten – teuerste zuerst</h2>
+            <span class="karte-zusatz">pro Jahr gerechnet</span>
+          </div>
+          <p class="hinweis fx-anleitung">Tippe bei einem Posten auf <strong>Prüfen</strong> oder <strong>Kündigen</strong> – oben siehst du sofort, was das pro Jahr bringt. Die Markierungen bleiben nur auf diesem Gerät.</p>
+          <ul class="fx-posten" id="fx-posten"></ul>
+          <button class="link-knopf" type="button" id="fx-alle"></button>
+        </article>
+
+        <article class="karte breit">
+          <div class="karte-kopf"><h2>Wann kommen die Rechnungen?</h2><span class="karte-zusatz">nächste 12 Monate · ohne monatliche Posten</span></div>
+          <ul class="fx-kalender" id="fx-kalender"></ul>
+          <p class="hinweis" id="fx-kalender-fuss"></p>
         </article>
       </div>
 
