@@ -6,6 +6,19 @@
 (function () {
   "use strict";
 
+  // Fehlt ein Teil der App (z.B. von einem Werbe-/Tracking-Blocker blockiert), klar melden statt still abbrechen
+  if (!window.Analyse || !window.TabellenLeser) {
+    const el = document.getElementById("meldung");
+    if (el) {
+      el.classList.add("fehler");
+      el.hidden = false;
+      el.textContent = "Ein Teil der App konnte nicht geladen werden. Häufigste Ursache: ein Werbe- oder Tracking-Blocker " +
+        "(z.B. uBlock, AdBlock). Bitte für diese Seite ausschalten und neu laden – oder die Seite in einem anderen Browser öffnen. " +
+        "Hilft das nicht: Seite mit Ctrl + Shift + R neu laden.";
+    }
+    return;
+  }
+
   // ---------- Zahlen- und Datumsformat (Schweiz) ----------
 
   const chfFormat = new Intl.NumberFormat("de-CH", { style: "currency", currency: "CHF" });
@@ -1352,7 +1365,24 @@
     const dateien = Array.from(e.target.files);
     e.target.value = ""; // gleiche Datei nochmals wählbar
     if (!dateien.length) return;
-    await ladeDateien(await Promise.all(dateien.map(async d => ({ name: d.name, buffer: await d.arrayBuffer() }))));
+    melde(`Lese ${dateien.map(d => d.name).join(", ")} …`);
+    const gelesen = [], fehler = [];
+    for (const d of dateien) {
+      try {
+        if (!d.size) throw new Error("LEER");
+        gelesen.push({ name: d.name, buffer: await d.arrayBuffer() });
+      } catch (err) {
+        console.error(err);
+        fehler.push(d.name);
+      }
+    }
+    if (fehler.length) {
+      melde(`✗ ${fehler.join(", ")}: Die Datei konnte nicht gelesen werden. Liegt sie in OneDrive, ist sie vermutlich nur online gespeichert (Wolken-Symbol). ` +
+        "Lösung: Im Explorer Rechtsklick auf die Datei → «Immer auf diesem Gerät beibehalten», kurz warten und nochmals wählen. " +
+        "Oder auf onedrive.live.com: Datei öffnen → Datei → Kopie speichern → Kopie herunterladen, und die heruntergeladene Datei wählen. " +
+        "Ist die Datei gerade in Excel geöffnet, Excel zuerst schliessen.", true);
+    }
+    if (gelesen.length) await ladeDateien(gelesen);
   });
 
   $("beispiel").addEventListener("click", async () => {

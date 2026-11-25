@@ -7,13 +7,13 @@
  * Nach Änderungen am Code: VERSION erhöhen, damit Geräte die neue
  * Version laden.
  */
-const VERSION = "finanz-dashboard-v11";
+const VERSION = "finanz-dashboard-v13";
 const DATEIEN = [
   "./",
   "index.html",
   "css/style.css",
   "js/xlsx-reader.js",
-  "js/analyse.js",
+  "js/rechnen.js",
   "js/app.js",
   "vendor/chart.umd.min.js",
   "manifest.webmanifest",
