@@ -145,7 +145,8 @@
       } catch (err) {
         console.error(err);
         fehler = true;
-        zeilenText.push(`✗ ${name}: ${FEHLERTEXTE[err.message] || "Die Datei konnte nicht gelesen werden."}`);
+        zeilenText.push(`✗ ${name}: ${FEHLERTEXTE[err.message] || "Die Datei konnte nicht gelesen werden."}` +
+          (err.details ? `\nGefundene Blätter und Spalten: ${err.details}\nErwartet z.B. ein Blatt «Fixkosten» mit Posten · Gruppe · Rhythmus · Betrag CHF, oder «Ausgaben» / «Vermögen».` : ""));
       }
     }
     if (!geladen) { melde(zeilenText.join("\n"), true); return; }
