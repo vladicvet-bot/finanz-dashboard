@@ -26,6 +26,8 @@ Oben im Reiter **«Fixkosten»** (braucht dein Finanz-Excel mit dem Blatt «Fixk
 - die Aufteilung **nach Gruppe**
 - **Kleine Posten:** wie viel alle Abos und alle Posten unter CHF 30 im Monat zusammen pro Jahr kosten
 - **alle Posten, die teuersten zuerst**, pro Jahr gerechnet. Bei jedem Posten kannst du **«Prüfen»** oder **«Kündigen»** antippen. Oben siehst du dann sofort: *«Wenn du 2 Posten kündigst: + CHF … pro Jahr, Sparquote … → …»*. Die Markierungen bleiben nur auf deinem Gerät.
+- **Kündigung bestätigen:** Nach «Kündigen» erscheint «✓ Kündigung bestätigen» mit «Gilt ab» (Monat). Ab diesem Monat zählt der Posten nicht mehr – weder bei den Fixkosten, im Geldfluss noch im Kalender. Er steht dann unter **«Gekündigt»** mit dem Betrag, den du pro Jahr sparst. Frühere Monate bleiben unverändert. «Rückgängig» holt ihn zurück.
+- **Name oder Betrag ändern (✎):** z.B. nach einem Anbieterwechsel. Der Posten zeigt dann «umbenannt (Excel: …)». Dein Excel bleibt unverändert; die Änderung gilt nur auf diesem Gerät. Leer lassen = wieder der Wert aus dem Excel.
 - **Konto und Bereich selbst zuordnen:** Bei jedem Posten kannst du das Konto (z.B. Privat oder Gem. Konto) und den Bereich ändern. Standard ist die Spalte «Konto» aus deinem Excel. Eigene Änderungen werden als «geändert» markiert und nur auf dem Gerät gespeichert.
 - **Kalender** der nächsten 12 Monate: wann welche Jahres- und Quartalsrechnungen kommen. Dazu ein Hinweis, welche Posten noch keine Fälligkeit haben.
 

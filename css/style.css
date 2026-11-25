@@ -701,3 +701,18 @@ input[type="date"] { font: inherit; font-size: 16px; color: var(--text); backgro
 .fluss svg text.fluss-konto, .fluss svg text.fluss-name, .fluss svg text.fluss-wert {
   stroke: var(--flaeche); stroke-width: 4px; stroke-linejoin: round; paint-order: stroke;
 }
+
+/* Kündigung bestätigen, umbenennen, gekündigt */
+.fx-stift { min-height: 28px; padding: 0 4px; font-size: 0.9375rem; vertical-align: 1px; }
+.fx-name .marke { display: table; margin: 4px 0 0; font-weight: 500; }
+.fx-bestaetigen { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 10px; border-radius: 10px; background: var(--flaeche); border: 1px dashed var(--gut); }
+.fx-bestaetigen label { display: inline-flex; align-items: center; gap: 6px; font-size: 0.875rem; }
+.fx-bestaetigen input[type="month"] { font: inherit; font-size: 16px; color: var(--text); background: var(--flaeche); border: 1px solid var(--rand); border-radius: 8px; min-height: 36px; padding: 0 8px; }
+.knopf-gut { background: var(--gut); color: #fff; border-color: transparent; }
+.knopf-gut:hover { background: color-mix(in srgb, var(--gut) 85%, #000); }
+.fx-pot.erledigt { border: 1px solid color-mix(in srgb, var(--gut) 40%, transparent); }
+.fx-gekuendigt { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.fx-gekuendigt li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, var(--gut) 8%, transparent); }
+.fx-gekuendigt small { display: block; color: var(--text-leise); font-size: 0.8125rem; }
+.fx-gespart { color: var(--gut-text); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+@media (max-width: 480px) { .fx-gekuendigt li { grid-template-columns: 1fr auto; } .fx-gekuendigt li .knopf { grid-column: 1 / -1; justify-self: start; } }
