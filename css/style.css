@@ -557,6 +557,7 @@ textarea {
 .v-tabelle tr.summe td { font-weight: 700; border-top: 2px solid var(--achse); }
 @media (max-width: 600px) {
   .v-tabelle th:nth-child(2), .v-tabelle td:nth-child(2) { display: none; }
+  .v-tabelle .v-art-schmal { display: block; }
 }
 
 /* Dialoge */
@@ -716,3 +717,10 @@ input[type="date"] { font: inherit; font-size: 16px; color: var(--text); backgro
 .fx-gekuendigt small { display: block; color: var(--text-leise); font-size: 0.8125rem; }
 .fx-gespart { color: var(--gut-text); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 @media (max-width: 480px) { .fx-gekuendigt li { grid-template-columns: 1fr auto; } .fx-gekuendigt li .knopf { grid-column: 1 / -1; justify-self: start; } }
+
+/* Art pro Konto selbst wählen */
+.v-art { white-space: nowrap; }
+.v-art select { font: inherit; font-size: 16px; color: var(--text); background: var(--flaeche); border: 1px solid var(--rand); border-radius: 8px; min-height: 36px; padding: 0 6px; max-width: 9.5rem; }
+.v-art .marke { display: block; margin-top: 2px; }
+.v-art-schmal { display: none; }
+.v-art-schmal select { font: inherit; font-size: 16px; color: var(--text); background: var(--flaeche); border: 1px solid var(--rand); border-radius: 8px; min-height: 36px; padding: 0 6px; margin-top: 4px; }
