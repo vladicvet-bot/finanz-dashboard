@@ -674,9 +674,19 @@
   const ART_PLURAL = { Konto: "Konten", Investment: "Investments" };
 
   // Alle Vermögens-Erfassungen: aus dem Sheet + lokal erfasste (ohne Doppelte)
+  // Eigene Zuordnung «Art» pro Konto (nur auf diesem Gerät)
+  const SPEICHER_VM_ART = "finanzDashboard.vmArt.v1";
+  const vmArt = speicherLesen(SPEICHER_VM_ART) || {};
+  function mitEigenerArt(e) {
+    const neu = vmArt[e.konto];
+    if (!neu || neu === e.art) return e;
+    const stand = neu === "Schulden" ? -Math.abs(e.stand) : e.art === "Schulden" ? Math.abs(e.stand) : e.stand;
+    return { ...e, artExcel: e.art, art: neu, stand };
+  }
   function alleVermoegen() {
-    if (zustand.quelle?.beispiel) return zustand.vermoegen || [];   // Beispiel nie mit echten Daten mischen
-    return window.Analyse.vermoegenZusammenfuehren(zustand.vermoegen || [], zustand.vmLokal.eintraege);
+    const roh = zustand.quelle?.beispiel ? zustand.vermoegen || []   // Beispiel nie mit echten Daten mischen
+      : window.Analyse.vermoegenZusammenfuehren(zustand.vermoegen || [], zustand.vmLokal.eintraege);
+    return roh.map(mitEigenerArt);
   }
 
   // Karte «Vermögen total» in der Übersicht (bezogen auf den gewählten Monat)
@@ -742,6 +752,22 @@
   }
 
   // Ansicht «Vermögen» (immer der neuste Stichtag)
+  $("v-konten").addEventListener("change", e => {
+    const sel = e.target.closest("select[data-vm-art]");
+    if (!sel) return;
+    const konto = sel.dataset.vmArt;
+    // Ursprüngliche Art (aus Excel/Erfassung) ermitteln, um «zurück» zu erkennen
+    const roh = zustand.quelle?.beispiel ? zustand.vermoegen || [] : window.Analyse.vermoegenZusammenfuehren(zustand.vermoegen || [], zustand.vmLokal.eintraege);
+    const orig = [...roh].filter(x => x.konto === konto).sort((a, b) => b.datum.localeCompare(a.datum))[0]?.art;
+    if (sel.value === orig) delete vmArt[konto]; else vmArt[konto] = sel.value;
+    speicherSchreiben(SPEICHER_VM_ART, vmArt);
+    vermoegenAnsicht();
+    vermoegenKarten();
+    melde(`✓ «${konto}» steht jetzt unter «${sel.value}».`);
+  });
+
+  const artWahl = k => `<select data-vm-art="${esc(k.konto)}" aria-label="Art von ${esc(k.konto)}">${window.Analyse.ARTEN.map(a => `<option${a === k.art ? " selected" : ""}>${esc(a)}</option>`).join("")}</select>${vmArt[k.konto] ? ' <em class="marke">angepasst</em>' : ""}`;
+
   function vermoegenAnsicht() {
     const A = window.Analyse;
     const V = A.vermoegenBerechnen(alleVermoegen());
@@ -817,8 +843,10 @@
     const reihenfolge = k => A.ARTEN.indexOf(k.art);
     $("v-konten").innerHTML = [...vm.konten].sort((a, b) => reihenfolge(a) - reihenfolge(b) || b.stand - a.stand).map(k => `
       <tr class="${k.uebernommen ? "alt" : ""}">
-        <td>${esc(k.konto)}${k.uebernommen ? `<span class="unterzeile-immer">nicht erfasst – Stand vom ${Format.datum(k.datum)}</span>` : ""}${k.notiz ? `<span class="notiz">${esc(k.notiz)}</span>` : ""}</td>
-        <td><i class="punkt f-${ART_FARBE[k.art]}"></i> ${esc(k.art)}</td>
+        <td>${esc(k.konto)}${k.uebernommen ? `<span class="unterzeile-immer">nicht erfasst – Stand vom ${Format.datum(k.datum)}</span>` : ""}${k.notiz ? `<span class="notiz">${esc(k.notiz)}</span>` : ""}
+          <span class="v-art-schmal">${artWahl(k)}</span></td>
+        <td class="v-art"><i class="punkt f-${ART_FARBE[k.art]}"></i>
+${artWahl(k)}</td>
         <td class="zahl">${Format.betrag(k.stand)}</td>
         <td class="zahl">${k.veraenderung == null ? "–" : `<span class="${k.veraenderung >= 0 ? "plus" : "minus"}">${k.veraenderung >= 0 ? "+" : "−"}${Format.betrag(Math.abs(k.veraenderung))}</span>`}</td>
         <td class="zahl">${k.gewinn == null ? "" : `<span class="${k.gewinn >= 0 ? "plus" : "minus"}">${k.gewinn >= 0 ? "+" : "−"}${Format.betrag(Math.abs(k.gewinn))}</span>`}</td>
