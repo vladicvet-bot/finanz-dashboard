@@ -458,9 +458,9 @@
     stand: ["stand", "kontostand", "wert"],
     eingezahlt: ["eingezahlt", "einbezahlt", "einzahlungen"],
     notiz: ["notiz", "bemerkung"],
-    posten: ["posten", "bezeichnung"],
+    posten: ["posten", "bezeichnung", "name", "position"],
     gruppe: ["gruppe"],
-    rhythmus: ["rhythmus", "intervall"],
+    rhythmus: ["rhythmus", "intervall", "turnus", "häufigkeit", "zahlungsrhythmus"],
     promonat: ["promonat"],
     uebercler: ["übercler", "uebercler"],
     faellig: ["fällig", "faellig", "fälligkeit"],
@@ -481,7 +481,9 @@
     return null;
   }
 
-  const blattSuchen = (blaetter, name) => blaetter.find(b => normName(b.name) === name);
+  // Blatt nach Namen suchen: zuerst exakt, sonst enthält (z.B. «Fixkosten 2026»)
+  const blattSuchen = (blaetter, name) => blaetter.find(b => normName(b.name) === name)
+    || blaetter.find(b => normName(b.name).includes(name));
 
   // Buchungen aus «Ausgaben» oder «Einnahmen»
   function leseSheetBuchungen(blatt, richtung) {
@@ -802,13 +804,17 @@
    * das erste Blatt mit erkennbaren Spalten als Haushaltsbuch/Bank-Export gelesen.
    */
   function ausArbeitsmappe(blaetter, dateiname = "") {
+    // Blätter am Namen ODER an den Spalten erkennen
+    const nachKopf = pflicht => blaetter.find(b => findeKopf(b.zeilen, pflicht));
     const ausgabenBlatt = blattSuchen(blaetter, "ausgaben");
-    const vermoegenBlatt = blattSuchen(blaetter, "vermögen") || blattSuchen(blaetter, "vermoegen");
-    if (ausgabenBlatt || vermoegenBlatt) {
+    const vermoegenBlatt = blattSuchen(blaetter, "vermögen") || blattSuchen(blaetter, "vermoegen")
+      || nachKopf(["datum", "konto", "stand"]);
+    const fixkostenBlatt = blattSuchen(blaetter, "fixkosten") || nachKopf(["posten", "betrag", "rhythmus"]);
+    if (ausgabenBlatt || vermoegenBlatt || fixkostenBlatt) {
       const vermoegen = leseVermoegen(vermoegenBlatt);
       const aus = leseSheetBuchungen(ausgabenBlatt, "aus");
       const ein = leseSheetBuchungen(blattSuchen(blaetter, "einnahmen"), "ein");
-      const fixkosten = leseFixkosten(blattSuchen(blaetter, "fixkosten"));
+      const fixkosten = leseFixkosten(fixkostenBlatt);
       const uebersicht = blattSuchen(blaetter, "übersicht") || blattSuchen(blaetter, "uebersicht");
       const budgets = leseBudgetsAusUebersicht(uebersicht);
       const kennzahlen = leseKennzahlen(uebersicht);
@@ -830,6 +836,12 @@
         return { typ: "tabelle", fixkosten: [], ...buchungenAusTabelle(blatt.zeilen, dateiname) };
       } catch (e) { letzterFehler = e; }
     }
+    // Hilfe für die Fehlersuche: Blattnamen und Spaltenüberschriften (nur Texte, keine Werte)
+    letzterFehler.details = blaetter.map(b => {
+      const kopf = (b.zeilen.find(z => z && z.some(v => typeof v === "string" && v.trim())) || [])
+        .filter(v => typeof v === "string" && v.trim()).slice(0, 9).map(v => v.trim().slice(0, 25));
+      return `«${b.name}»: ${kopf.length ? kopf.join(" · ") : "(leer)"}`;
+    }).join(" | ");
     throw letzterFehler;
   }
 
