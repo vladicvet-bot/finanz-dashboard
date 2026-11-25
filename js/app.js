@@ -1352,7 +1352,24 @@
     const dateien = Array.from(e.target.files);
     e.target.value = ""; // gleiche Datei nochmals wählbar
     if (!dateien.length) return;
-    await ladeDateien(await Promise.all(dateien.map(async d => ({ name: d.name, buffer: await d.arrayBuffer() }))));
+    melde(`Lese ${dateien.map(d => d.name).join(", ")} …`);
+    const gelesen = [], fehler = [];
+    for (const d of dateien) {
+      try {
+        if (!d.size) throw new Error("LEER");
+        gelesen.push({ name: d.name, buffer: await d.arrayBuffer() });
+      } catch (err) {
+        console.error(err);
+        fehler.push(d.name);
+      }
+    }
+    if (fehler.length) {
+      melde(`✗ ${fehler.join(", ")}: Die Datei konnte nicht gelesen werden. Liegt sie in OneDrive, ist sie vermutlich nur online gespeichert (Wolken-Symbol). ` +
+        "Lösung: Im Explorer Rechtsklick auf die Datei → «Immer auf diesem Gerät beibehalten», kurz warten und nochmals wählen. " +
+        "Oder auf onedrive.live.com: Datei öffnen → Datei → Kopie speichern → Kopie herunterladen, und die heruntergeladene Datei wählen. " +
+        "Ist die Datei gerade in Excel geöffnet, Excel zuerst schliessen.", true);
+    }
+    if (gelesen.length) await ladeDateien(gelesen);
   });
 
   $("beispiel").addEventListener("click", async () => {
