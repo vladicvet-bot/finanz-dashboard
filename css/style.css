@@ -724,3 +724,12 @@ input[type="date"] { font: inherit; font-size: 16px; color: var(--text); backgro
 .v-art .marke { display: block; margin-top: 2px; }
 .v-art-schmal { display: none; }
 .v-art-schmal select { font: inherit; font-size: 16px; color: var(--text); background: var(--flaeche); border: 1px solid var(--rand); border-radius: 8px; min-height: 36px; padding: 0 6px; margin-top: 4px; }
+
+/* Verlauf: Zeitraum-Filter */
+.v-filter { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-bottom: 8px; }
+.v-ab { display: inline-flex; align-items: center; gap: 6px; font-size: 0.875rem; color: var(--text-2); }
+.v-ab select { font: inherit; font-size: 16px; color: var(--text); background: var(--flaeche); border: 1px solid var(--rand); border-radius: 8px; min-height: 36px; padding: 0 6px; }
+.v-zr-delta { margin: 0 0 8px; font-size: 0.9375rem; color: var(--text-2); }
+.v-zr-delta .besser { color: var(--gut-text); }
+.v-zr-delta .schlechter { color: var(--kritisch); }
+@media (max-width: 480px) { .v-filter .umschalter { width: 100%; } .v-filter .umschalter button { flex: 1; } }
