@@ -817,14 +817,15 @@
     // Investments & Vorsorge: Gewinn, sobald «Eingezahlt» erfasst ist
     const inv = vm.konten.filter(k => k.art === "Investment" || k.art === "Vorsorge");
     $("karte-invest").hidden = !inv.length;
+    // Nur Konten mit «Eingezahlt» zeigen – die Stände stehen schon links unter «Summe pro Art»
     const mitEin = inv.filter(k => k.eingezahlt);
-    const maxI = Math.max(1, ...inv.map(k => Math.max(k.stand, k.eingezahlt || 0)));
-    $("invest").innerHTML = inv.map(k => {
-      if (!k.eingezahlt) {
-        return `<li><div class="invest-kopf"><span class="name">${esc(k.konto)}</span><span>${Format.chf(k.stand)}</span></div>
-          <div class="spur duenn"><div class="fuellung" data-breite="${(Math.max(0, k.stand) / maxI * 100).toFixed(1)}"></div></div>
-          <div class="detail">«Eingezahlt» noch nicht erfasst – Gewinn folgt</div></li>`;
-      }
+    const ohneEin = inv.filter(k => !k.eingezahlt);
+    const maxI = Math.max(1, ...mitEin.map(k => Math.max(k.stand, k.eingezahlt)));
+    $("invest-ohne").hidden = !ohneEin.length;
+    $("karte-invest").querySelector(".legende").hidden = !mitEin.length;
+    $("invest-ohne").innerHTML = ohneEin.length
+      ? `${mitEin.length ? "Noch ohne" : "Sobald du bei der Erfassung"} «Eingezahlt»${mitEin.length ? ": " : " einträgst, wie viel du einbezahlt hast, siehst du hier den Gewinn. Fehlt bei: "}${ohneEin.map(k => esc(k.konto)).join(", ")}.` : "";
+    $("invest").innerHTML = mitEin.map(k => {
       const gewinn = k.stand - k.eingezahlt;
       const prozent = gewinn / k.eingezahlt;
       return `<li>
