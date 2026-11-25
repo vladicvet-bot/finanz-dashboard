@@ -354,15 +354,16 @@
           <button class="link-knopf" type="button" id="fx-alle"></button>
         </article>
 
-        <article class="karte breit" id="fx-gekuendigt-karte" hidden>
-          <div class="karte-kopf"><h2>Gekündigt</h2><span class="karte-zusatz">zählt ab dem Monat nicht mehr</span></div>
-          <ul class="fx-gekuendigt" id="fx-gekuendigt"></ul>
-        </article>
-
         <article class="karte breit">
           <div class="karte-kopf"><h2>Wann kommen die Rechnungen?</h2><span class="karte-zusatz">nächste 12 Monate · ohne monatliche Posten</span></div>
           <ul class="fx-kalender" id="fx-kalender"></ul>
           <p class="hinweis" id="fx-kalender-fuss"></p>
+        </article>
+
+        <article class="karte breit fx-gekuendigt-karte" id="fx-gekuendigt-karte" hidden>
+          <div class="karte-kopf"><h2>Gekündigt</h2><span class="karte-zusatz fx-gespart" id="fx-gekuendigt-summe"></span></div>
+          <p class="hinweis">Diese Posten zählen ab dem gewählten Monat nicht mehr zu deinen Fixkosten.</p>
+          <ul class="fx-gekuendigt" id="fx-gekuendigt"></ul>
         </article>
       </div>
 

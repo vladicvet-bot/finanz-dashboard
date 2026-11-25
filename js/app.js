@@ -188,7 +188,7 @@
   function fixEff() {
     return (zustand.fixkosten || []).map(f => {
       const schluessel = `${f.posten}|${f.gruppe}`;
-      const g = { ...f, schluessel, kontoExcel: f.konto, postenExcel: f.posten, betragExcel: f.betrag };
+      const g = { ...f, schluessel, kontoExcel: f.konto, postenExcel: f.posten, betragExcel: f.betrag, faelligExcel: f.faellig };
       const z = fixZuordnung[schluessel];
       if (!z) return g;
       if (z.konto) g.konto = z.konto;
@@ -196,6 +196,7 @@
       if (z.name) g.posten = z.name;
       if (z.betrag != null) { g.betrag = z.betrag; g.proMonat = Math.round(z.betrag * g.haeufigkeit / 12 * 100) / 100; }
       if (z.gekuendigtAb) g.gekuendigtAb = z.gekuendigtAb;
+      if (Array.isArray(z.faellig)) g.faellig = z.faellig;
       return g;
     });
   }
@@ -1165,6 +1166,9 @@ ${artWahl(k)}</td>
     return { monate: m, einnahmen: s.ein / m.length, ausgaben: s.aus / m.length };
   }
 
+  const MONAT_NAMEN = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
+  const offeneFaellig = new Set();
+
   function naechsterMonat() {
     const h = new Date();
     const d = new Date(h.getFullYear(), h.getMonth() + 1, 1);
@@ -1220,8 +1224,6 @@ ${artWahl(k)}</td>
     const pruefen = posten.filter(f => f.marke === "pruefen");
     const sumJahr = l => l.reduce((s, f) => s + f.jahr, 0);
     const gekuendigtJahr = gekuendigt.reduce((s, f) => s + f.jahr, 0);
-    const gekuendigtHtml = gekuendigt.length ? `<div class="fx-pot gut erledigt">${ICONS.gut}<div><strong>Schon gekündigt: ${Format.chf(gekuendigtJahr)} pro Jahr gespart</strong>
-      <span>${gekuendigt.length} ${gekuendigt.length === 1 ? "Posten" : "Posten"} – siehe «Gekündigt» unten</span></div></div>` : "";
     if (kuendigen.length || pruefen.length) {
       const plus = sumJahr(kuendigen);
       let quote = "";
@@ -1233,11 +1235,10 @@ ${artWahl(k)}</td>
       $("fx-potenzial").innerHTML = `
         ${kuendigen.length ? `<div class="fx-pot gut">${ICONS.gut}<div><strong>Wenn du ${kuendigen.length} Posten kündigst: + ${Format.chf(plus)} pro Jahr</strong>
           <span>= ${Format.chf(plus / 12)} pro Monat${quote}</span></div></div>` : ""}
-        ${gekuendigtHtml}
         ${pruefen.length ? `<div class="fx-pot">${ICONS.info}<div><strong>${pruefen.length} ${pruefen.length === 1 ? "Posten" : "Posten"} zum Prüfen: ${Format.chf(sumJahr(pruefen))} pro Jahr</strong>
           <span>${pruefen.slice(0, 4).map(f => esc(f.posten)).join(", ")}${pruefen.length > 4 ? " …" : ""}</span></div></div>` : ""}`;
     } else {
-      $("fx-potenzial").innerHTML = gekuendigtHtml || '<p class="hinweis">Tipp: Markiere unten Posten mit «Prüfen» oder «Kündigen», dann siehst du hier dein Sparpotenzial.</p>';
+      $("fx-potenzial").innerHTML = '<p class="hinweis">Tipp: Markiere unten Posten mit «Prüfen» oder «Kündigen», dann siehst du hier dein Sparpotenzial.</p>';
     }
 
     // Nach Gruppe (pro Jahr)
@@ -1271,7 +1272,15 @@ ${artWahl(k)}</td>
         </div>
         <div class="spur" aria-hidden="true"><div class="fuellung" data-breite="${Math.max(1, f.jahr / maxJ * 100).toFixed(1)}"></div></div>
         <div class="fx-fuss">
-          <span class="detail">${esc(f.gruppe)} · ${RHYTHMUS_KURZ(f.haeufigkeit)} ${Format.chf(f.betrag)}${f.ueberCler ? ' · <em class="marke">Cler</em>' : ""}</span>
+          <span class="detail">${esc(f.gruppe)} · ${RHYTHMUS_KURZ(f.haeufigkeit)} ${Format.chf(f.betrag)}${f.ueberCler ? ' · <em class="marke">Cler</em>' : ""}
+            ${f.haeufigkeit < 12 ? `· <button class="link-knopf fx-faellig-knopf" type="button" data-faellig-auf="${esc(zuordnungSchluessel(f))}" aria-expanded="${offeneFaellig.has(zuordnungSchluessel(f))}">fällig ${f.faellig.length ? f.faellig.map(m => MONAT_NAMEN[m - 1]).join(", ") : "– Monat fehlt"} ✎</button>
+              ${f.faellig.join() !== (f.faelligExcel || []).join() ? `<em class="marke">geändert (Excel: ${(f.faelligExcel || []).map(m => MONAT_NAMEN[m - 1]).join(", ") || "leer"})</em>` : ""}` : ""}</span>
+          ${f.haeufigkeit < 12 && offeneFaellig.has(zuordnungSchluessel(f)) ? `<div class="fx-monate" role="group" aria-label="Rechnungsmonate für ${esc(f.posten)}">
+            ${MONAT_NAMEN.map((n, i) => `<button type="button" data-faellig="${esc(zuordnungSchluessel(f))}" data-monat="${i + 1}" aria-pressed="${f.faellig.includes(i + 1)}">${n}</button>`).join("")}
+            <span class="fx-monate-fuss"><span class="klein-hinweis">Tippe die Monate an, in denen die Rechnung kommt.</span>
+              <button class="link-knopf" type="button" data-faellig-excel="${esc(zuordnungSchluessel(f))}">Wie im Excel</button>
+              <button class="knopf knopf-klein" type="button" data-faellig-auf="${esc(zuordnungSchluessel(f))}">Fertig</button></span>
+          </div>` : ""}
           <span class="fx-zuordnung">
             <label>Konto <select data-zuo="${esc(zuordnungSchluessel(f))}" data-feld="konto" aria-label="Konto für ${esc(f.posten)}">
               ${kontenListe.map(k => `<option ${k === f.konto ? "selected" : ""}>${esc(k)}</option>`).join("")}</select></label>
@@ -1294,6 +1303,8 @@ ${artWahl(k)}</td>
     $("fx-alle").hidden = posten.length <= 10;
     // Gekündigte Posten
     $("fx-gekuendigt-karte").hidden = !gekuendigt.length;
+    $("fx-gekuendigt-summe").textContent = gekuendigt.length
+      ? `${gekuendigt.length} Posten · + ${Format.chf(gekuendigtJahr)} pro Jahr gespart` : "";
     $("fx-gekuendigt").innerHTML = gekuendigt.sort((a, b) => b.jahr - a.jahr).map(f => `
       <li><span><strong>${esc(f.posten)}</strong><small>ab ${Format.monat(f.gekuendigtAb)} · ${esc(f.gruppe)}</small></span>
         <span class="fx-gespart">+ ${Format.chf(f.jahr)}/Jahr</span>
@@ -1314,7 +1325,7 @@ ${artWahl(k)}</td>
     for (const el of $("fx-kalender").querySelectorAll("[data-breite]")) el.style.width = `${el.dataset.breite}%`;
     const ohne = posten.filter(f => f.haeufigkeit < 12 && !f.faellig.length);
     $("fx-kalender-fuss").textContent = ohne.length
-      ? `Ohne Fälligkeit (im Excel bei «Fällig» ergänzen): ${ohne.map(f => f.posten).join(", ")}.` : "";
+      ? `Ohne Fälligkeit (oben beim Posten auf «fällig ✎» tippen): ${ohne.map(f => f.posten).join(", ")}.` : "";
   }
 
   // ---------- Ansicht wechseln ----------
@@ -1858,6 +1869,34 @@ ${artWahl(k)}</td>
       speicherSchreiben(SPEICHER_FIXMARKEN, fixMarken);
       speichereZuordnung(k, { ...(fixZuordnung[k] || {}), gekuendigtAb: ab });
       melde(`✓ «${f ? f.posten : k}» ist ab ${Format.monat(ab)} gekündigt.`);
+      return;
+    }
+    const auf = e.target.closest("[data-faellig-auf]");
+    if (auf) {
+      const k = auf.dataset.faelligAuf;
+      if (offeneFaellig.has(k)) offeneFaellig.delete(k); else offeneFaellig.add(k);
+      fixkostenAnsicht();
+      return;
+    }
+    const mo = e.target.closest("[data-faellig]");
+    if (mo) {
+      const k = mo.dataset.faellig, m = Number(mo.dataset.monat);
+      const f = fixEff().find(x => x.schluessel === k);
+      if (!f) return;
+      const neu = new Set(f.faellig);
+      if (neu.has(m)) neu.delete(m); else neu.add(m);
+      const liste = [...neu].sort((a, b) => a - b);
+      const z = { ...(fixZuordnung[k] || {}) };
+      if (liste.join() === (f.faelligExcel || []).join()) delete z.faellig; else z.faellig = liste;
+      speichereZuordnung(k, z);
+      return;
+    }
+    const fx = e.target.closest("[data-faellig-excel]");
+    if (fx) {
+      const k = fx.dataset.faelligExcel;
+      const z = { ...(fixZuordnung[k] || {}) };
+      delete z.faellig;
+      speichereZuordnung(k, z);
       return;
     }
     const rg = e.target.closest("[data-rueckgaengig]");
