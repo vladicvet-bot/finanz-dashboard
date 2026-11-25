@@ -687,3 +687,17 @@ input[type="date"] { font: inherit; font-size: 16px; color: var(--text); backgro
   .ansicht-wahl button { min-width: 0; flex: 1; }
   .fx-kalender li { grid-template-columns: 46px minmax(0, 1fr) 92px; }
 }
+
+/* Geldfluss mit Konten in der Mitte */
+.fluss .fluss-konto { font-size: 12.5px; font-weight: 700; fill: var(--text); }
+.f-konto { fill: var(--text-2); }
+.f-ein { fill: var(--text-leise); }
+.fx-zuordnung { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 0.8125rem; color: var(--text-2); }
+.fx-zuordnung label { display: inline-flex; align-items: center; gap: 6px; }
+.fx-zuordnung select { min-height: 32px; min-width: 0; font-size: 16px; padding: 0 8px; font-weight: 400; }
+@media (min-width: 700px) { .fx-zuordnung select { font-size: 0.875rem; } }
+.f-ruecklage { fill: color-mix(in srgb, var(--gut) 45%, var(--flaeche)); background: color-mix(in srgb, var(--gut) 45%, var(--flaeche)); }
+/* Beschriftungen im Fluss mit «Halo», damit sie über den Bändern lesbar bleiben */
+.fluss svg text.fluss-konto, .fluss svg text.fluss-name, .fluss svg text.fluss-wert {
+  stroke: var(--flaeche); stroke-width: 4px; stroke-linejoin: round; paint-order: stroke;
+}

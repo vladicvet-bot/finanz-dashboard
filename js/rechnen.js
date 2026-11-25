@@ -594,7 +594,7 @@
     const frei = liste.filter(f => fixArt(f.gruppe) === "einnahme");
     for (const u of liste.filter(f => fixArt(f.gruppe) === "transfer")) {
       const i = frei.findIndex(e => e.konto !== u.konto && Math.abs(e.betrag - u.betrag) < 0.01 && e.haeufigkeit === u.haeufigkeit);
-      if (i >= 0) { frei[i].interneEinzahlung = true; frei.splice(i, 1); }
+      if (i >= 0) { frei[i].interneEinzahlung = true; frei[i].vonKonto = u.konto; frei.splice(i, 1); }
     }
   }
 
@@ -652,18 +652,24 @@
     return treffer ? treffer[0] : "Andere";
   }
 
-  // Ausgaben eines Monats nach Hauptgruppe, mit den Einzelkategorien darunter
+  // Bereich einer Buchung: eigene Zuordnung (falls gesetzt), sonst aus der Kategorie
+  const bereichVon = b => b.bereich || hauptgruppe(b.kategorie);
+
+  // Ausgaben eines Monats nach Bereich (Ebene 1), mit den Einzelkategorien darunter
   function nachHauptgruppe(pm) {
     const gruppen = {};
-    const fixKat = new Set(pm.buchungen.filter(b => b.fix && b.ausgabe && !b.umbuchung).map(b => b.kategorie));
-    for (const [kat, betrag] of Object.entries(pm.nachKategorie)) {
-      if (betrag <= 0) continue;
-      const g = gruppen[hauptgruppe(kat)] ||= { name: hauptgruppe(kat), summe: 0, kategorien: [] };
-      g.summe += betrag;
-      g.kategorien.push({ name: kat, betrag, fix: fixKat.has(kat) && !(kat in pm.variabelNachKategorie) });
+    for (const b of pm.buchungen) {
+      if (!b.ausgabe || b.umbuchung) continue;
+      const name = bereichVon(b);
+      const g = gruppen[name] ||= { name, summe: 0, kat: {} };
+      g.summe += b.ausgabe;
+      const k = g.kat[b.kategorie] ||= { name: b.kategorie, betrag: 0, fix: true };
+      k.betrag += b.ausgabe;
+      if (!b.fix) k.fix = false;
     }
-    for (const g of Object.values(gruppen)) g.kategorien.sort((a, b) => b.betrag - a.betrag);
-    return Object.values(gruppen).sort((a, b) => b.summe - a.summe);
+    return Object.values(gruppen).map(g => ({ name: g.name, summe: g.summe,
+      kategorien: Object.values(g.kat).sort((a, b) => b.betrag - a.betrag) }))
+      .sort((a, b) => b.summe - a.summe);
   }
 
   // ---------- Blatt «Vermögen»: Stände pro Konto/Anlage und Stichtag ----------
@@ -873,6 +879,7 @@
           ausgabe: istEinnahme ? 0 : f.proMonat,
           saldo: null,
           fix: true,
+          bereich: f.bereich || "",
           transfer: !opt.topfSicht && art === "sparen",
           sparen: !opt.topfSicht && art === "sparen",
           nr: -1,
@@ -983,7 +990,7 @@
     buchungenAusTabelle, ausArbeitsmappe, zuordnen, berechne, zeitraum, durchschnittVorher, warnungen,
     fixBuchungen, fixUebersicht, fixArtGenau, faelligkeiten, vermoegenBerechnen, ARTEN,
     vermoegenZusammenfuehren, vermoegenEintrag, vermoegenAusText, vmSchluessel,
-    nachHauptgruppe, HAUPTGRUPPEN_NAMEN, clerBedarfProMonat, clerPrognose, monatVon, naechsterMonat,
+    nachHauptgruppe, HAUPTGRUPPEN_NAMEN, hauptgruppe, bereichVon, clerBedarfProMonat, clerPrognose, monatVon, naechsterMonat,
     STANDARD_REGELN,
     _test: { zuDatum, zuBetrag, normName },
     zuDatum, zuBetrag,

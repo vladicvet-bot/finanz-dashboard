@@ -180,6 +180,17 @@
     });
   }
 
+  // Eigene Zuordnung pro Fixkosten-Posten (Konto, Bereich) – nur auf diesem Gerät
+  const SPEICHER_ZUORDNUNG = "finanzDashboard.fixZuordnung.v1";
+  const fixZuordnung = speicherLesen(SPEICHER_ZUORDNUNG) || {};
+  const zuordnungSchluessel = f => `${f.posten}|${f.gruppe}`;
+  function fixEff() {
+    return (zustand.fixkosten || []).map(f => {
+      const z = fixZuordnung[zuordnungSchluessel(f)];
+      return z ? { ...f, kontoExcel: f.konto, konto: z.konto || f.konto, bereich: z.bereich || "" } : f;
+    });
+  }
+
   function fixOptionen() {
     return {
       ignorieren: zustand.einst.ignorierePosten,
@@ -203,11 +214,11 @@
     for (let m = von; monate.length < 600; m = A.naechsterMonat(m)) { monate.push(m); if (m === bis) break; }
 
     // Konto-Filter: «alle» = Haushalts-Sicht, ein Konto = Topf-Sicht wie im Sheet
-    zustand.alleKonten = [...new Set(buchungen.map(b => b.konto).concat(zustand.fixkosten.map(f => f.konto)))].sort();
+    zustand.alleKonten = [...new Set(buchungen.map(b => b.konto).concat(fixEff().map(f => f.konto)))].sort();
     if (zustand.kontoFilter !== "alle" && !zustand.alleKonten.includes(zustand.kontoFilter)) zustand.kontoFilter = "alle";
     const topfSicht = zustand.kontoFilter !== "alle";
 
-    const fix = A.fixBuchungen(zustand.fixkosten, monate, { ...fixOptionen(), topfSicht });
+    const fix = A.fixBuchungen(fixEff(), monate, { ...fixOptionen(), topfSicht });
     let alle = buchungen.concat(pikettBuchungen(buchungen), fix);
     A.zuordnen(alle, zustand.einst.regeln);
     if (topfSicht) alle = alle.filter(b => b.konto === zustand.kontoFilter);
@@ -361,7 +372,7 @@
     if (!zustand.fixkosten.length) { el.innerHTML = ""; return; }
     const heute = new Date().toISOString().slice(0, 7);
     const ab = zustand.monat < heute ? heute : zustand.monat;
-    const f = window.Analyse.faelligkeiten(zustand.fixkosten, ab, 2, fixOptionen()).filter(x => x.posten.length);
+    const f = window.Analyse.faelligkeiten(fixEff(), ab, 2, fixOptionen()).filter(x => x.posten.length);
     el.innerHTML = f.length ? `<h3 class="unter-titel">Nächste Rechnungen</h3><ul class="kurzliste">${f.flatMap(x =>
       x.posten.slice(0, 3).map(p => `<li><span>${Format.monatKurz(x.monat)} · ${esc(p.posten)}</span><span>${Format.chf(p.betrag)}</span></li>`)).join("")}</ul>` : "";
   }
@@ -458,77 +469,157 @@
     mini("chart-k-spar", verlauf.map(m => d.proMonat[m].einnahmen - d.proMonat[m].ausgaben), "gut");
   }
 
-  // ---------- Geldfluss (eigenes SVG-Flussdiagramm) ----------
+  // ---------- Geldfluss: Einkommen → Konto → Verwendung (eigenes SVG) ----------
+
+  const REFUND_RE = /rückerstatt|rueckerstatt|erstattung|retoure/i;
+
+  // Berechnet die Flüsse eines Monats pro Konto (Quelle → Konto → Verwendung)
+  function flussDaten(pm) {
+    const A = window.Analyse;
+    const opt = fixOptionen();
+    const quellen = [];                    // { name, konto, wert }
+    const ziele = {};                      // konto -> { zielName: wert }
+    const plus = (k, name, w) => { (ziele[k] ||= {})[name] = (ziele[k][name] || 0) + w; };
+    const qMap = {};
+    for (const b of pm.buchungen) {
+      if (b.einnahme && !b.umbuchung) {
+        const name = REFUND_RE.test(b.kategorie) ? "Rückerstattungen" : (b.fix ? b.beschreibung : (b.beschreibung && b.quelle === "pikett" ? b.beschreibung : b.kategorie));
+        const key = `${b.konto}|${name}`;
+        (qMap[key] ||= { name, konto: b.konto, wert: 0 }).wert += b.einnahme;
+      }
+      if (b.ausgabe && !b.umbuchung) plus(b.konto, A.bereichVon(b), b.ausgabe);
+      if (b.ausgabe && b.sparen) plus(b.konto, "Sparen & Investieren", b.ausgabe);
+    }
+    quellen.push(...Object.values(qMap));
+    // Rücklagen (z.B. Ferien) verlassen das Konto ebenfalls
+    for (const f of fixEff()) if (A.fixArtGenau(f, opt) === "ruecklage") plus(f.konto, "Rücklagen", f.proMonat);
+    // Interne Überweisungen (z.B. Privat → Gem. Konto)
+    const transfer = [];                   // { von, nach, wert }
+    const kontoMitUeberweisung = fixEff().find(f => A.fixArtGenau(f, opt) === "transfer")?.konto;
+    for (const f of fixEff()) {
+      if (A.fixArtGenau(f, opt) !== "intern") continue;
+      const von = f.vonKonto || kontoMitUeberweisung;
+      if (von && von !== f.konto) transfer.push({ von, nach: f.konto, wert: f.proMonat });
+    }
+    return { quellen, ziele, transfer };
+  }
 
   function fluss() {
     const d = zustand.daten;
     const pm = d.proMonat[zustand.monat];
     $("fluss-monat").textContent = Format.monat(zustand.monat);
-    const A = window.Analyse;
-    const gruppenListe = A.nachHauptgruppe(pm);
+    const { quellen, ziele, transfer } = flussDaten(pm);
 
-    // Rechte Seite: Hauptgruppen (brutto), Sparen, Übrig
-    const rechts = gruppenListe.map(g => ({ name: g.name, wert: g.summe, farbe: GRUPPEN_FARBE[g.name] || "grau-fest" }));
-    if (pm.sparen > 0) rechts.push({ name: "Sparen & Investieren", wert: pm.sparen, farbe: "gut", icon: "Sparen" });
-    const brutto = rechts.reduce((s, r) => s + r.wert, 0);
-
-    // Linke Seite: Einkommen, Rückerstattungen, ggf. Fehlbetrag
-    const links = [];
-    const einkommenNachArt = {};
-    for (const b of pm.buchungen) {
-      if (!b.einnahme || b.umbuchung || /rückerstatt|rueckerstatt|erstattung|retoure/i.test(b.kategorie)) continue;
-      const name = b.fix ? b.beschreibung : b.kategorie;
-      einkommenNachArt[name] = (einkommenNachArt[name] || 0) + b.einnahme;
+    // Konten und ihre Bilanz
+    const konten = [...new Set(quellen.map(q => q.konto).concat(Object.keys(ziele)).concat(transfer.flatMap(t => [t.von, t.nach])))];
+    const einkommen = k => quellen.filter(q => q.konto === k).reduce((s, q) => s + q.wert, 0);
+    const tAus = k => transfer.filter(t => t.von === k).reduce((s, t) => s + t.wert, 0);
+    const tEin = k => transfer.filter(t => t.nach === k).reduce((s, t) => s + t.wert, 0);
+    const ausgaben = k => Object.values(ziele[k] || {}).reduce((s, w) => s + w, 0);
+    const links1 = [];   // Quelle -> Konto
+    const links2 = [];   // Konto -> Ziel
+    const quellKnoten = quellen.map(q => ({ ...q }));
+    for (const k of konten) {
+      const ein = einkommen(k);
+      const zufluss = ein - tAus(k) + tEin(k);
+      const rest = zufluss - ausgaben(k);
+      if (rest > 0.5) plus2(k, "Übrig", rest);
+      else if (rest < -0.5) quellKnoten.push({ name: "Aus Erspartem", konto: k, wert: -rest, minus: true });
     }
-    for (const [name, wert] of Object.entries(einkommenNachArt).sort((a, b) => b[1] - a[1])) links.push({ name, wert });
-    if (pm.rueckerstattungen > 0) links.push({ name: "Rückerstattungen", wert: pm.rueckerstattungen });
-    const linksSumme = links.reduce((s, l) => s + l.wert, 0);
-    if (linksSumme > brutto + 0.5) rechts.push({ name: "Übrig", wert: linksSumme - brutto, farbe: "uebrig" });
-    else if (brutto > linksSumme + 0.5) links.push({ name: "Aus Erspartem", wert: brutto - linksSumme, minus: true });
-    const total = Math.max(linksSumme, brutto);
-    if (total <= 0) { $("fluss").innerHTML = '<p class="leer">Keine Daten für diesen Monat.</p>'; return; }
+    function plus2(k, n, w) { (ziele[k] ||= {})[n] = (ziele[k][n] || 0) + w; }
+    // Quellen → Konten. Was per Dauerauftrag weitergeht (z.B. Privat → Gem. Konto), wird
+    // zuerst dem grössten Einkommen des Kontos zugeordnet (meist dem Lohn) und fliesst direkt ins Zielkonto.
+    const offen = transfer.map(t => ({ ...t, rest: t.wert }));
+    const nachGroesse = [...quellKnoten].sort((a, b) => b.wert - a.wert);
+    const eigenWert = new Map(quellKnoten.map(q => [q, q.wert]));
+    for (const q of nachGroesse) {
+      if (q.minus) continue;
+      for (const t of offen.filter(t => t.von === q.konto && t.rest > 0.01)) {
+        const w = Math.min(t.rest, eigenWert.get(q));
+        if (w <= 0.01) continue;
+        links1.push({ q, k: t.nach, wert: w, via: q.konto });
+        t.rest -= w;
+        eigenWert.set(q, eigenWert.get(q) - w);
+      }
+    }
+    for (const q of quellKnoten) if (eigenWert.get(q) > 0.01) links1.push({ q, k: q.konto, wert: eigenWert.get(q) });
+    // Konten → Ziele
+    for (const k of konten) for (const [z, w] of Object.entries(ziele[k] || {})) if (w > 0.01) links2.push({ k, z, wert: w });
+
+    // Knoten-Reihenfolge
+    const kontoWert = k => links1.filter(l => l.k === k).reduce((s, l) => s + l.wert, 0);
+    const kontenSort = konten.filter(k => kontoWert(k) > 0.01 || ausgaben(k) > 0.01).sort((a, b) => kontoWert(b) - kontoWert(a));
+    const qSort = quellKnoten.filter(q => q.wert > 0.01).sort((a, b) => kontenSort.indexOf(a.konto) - kontenSort.indexOf(b.konto) || (a.minus - b.minus) || b.wert - a.wert);
+    const zielSumme = {};
+    for (const l of links2) zielSumme[l.z] = (zielSumme[l.z] || 0) + l.wert;
+    const spezial = ["Sparen & Investieren", "Rücklagen", "Übrig"];
+    const zSort = Object.keys(zielSumme).sort((a, b) => (spezial.indexOf(a) - spezial.indexOf(b)) || zielSumme[b] - zielSumme[a]);
+    const total = Math.max(qSort.reduce((s, q) => s + q.wert, 0), 1);
+    if (!links2.length) { $("fluss").innerHTML = '<p class="leer">Keine Daten für diesen Monat.</p>'; return; }
 
     // Geometrie
-    const breite = $("fluss").clientWidth || 600;
-    const schmal = breite < 520;
-    const W = breite, linksB = schmal ? 92 : 150, knotenB = 12;
-    const rechtsX = schmal ? W - 150 : W - 260;
-    const gap = 6, minH = 16;   // Mindesthöhe, damit kleine Posten lesbar bleiben
-    const hoeheProCHF = 300 / total;
-    const ein = pm.einnahmen || 1;
+    const W = $("fluss").clientWidth || 700;
+    const schmal = W < 560;
+    const knB = 12;
+    const x0 = schmal ? 92 : 160, x2 = schmal ? W - 112 : W - 250, x1 = Math.round((x0 + x2) / 2);
+    const skala = 340 / total, minH = 14, gapQ = 8, gapK = 30, gapZ = 7, oben = 22;
+    const ein = pm.einnahmen || total;
     const prozent = w => `${Math.round(w / ein * 100)} %`;
+    const legeAus = (liste, wertVon, gap) => { let y = oben; return liste.map(n => { const h = Math.max(minH, wertVon(n) * skala); const r = { n, y, h }; y += h + gap; return r; }); };
+    const qPos = legeAus(qSort, q => q.wert, gapQ);
+    const kPos = legeAus(kontenSort, k => Math.max(kontoWert(k), ausgaben(k) + (ziele[k]?.["Übrig"] || 0) * 0), gapK);
+    const zPos = legeAus(zSort, z => zielSumme[z], gapZ);
+    const ende = l => l.length ? l[l.length - 1].y + l[l.length - 1].h : 0;
+    const H = Math.max(ende(qPos), ende(kPos), ende(zPos)) + 8;
+    const kpos = k => kPos.find(p => p.n === k);
+    const zpos = z => zPos.find(p => p.n === z);
+    const qpos = q => qPos.find(p => p.n === q);
 
-    let y = 4; const linksPos = links.map(l => { const h = Math.max(minH, l.wert * hoeheProCHF); const p = { ...l, y, h }; y += h + gap; return p; });
-    const linksEnde = y;
-    y = 4; const rechtsPos = rechts.map(r => { const h = Math.max(minH, r.wert * hoeheProCHF); const p = { ...r, y, h }; y += h + gap; return p; });
-    const H = Math.max(linksEnde, y) + 4;
+    const farbeZiel = z => z === "Sparen & Investieren" ? "gut" : z === "Übrig" ? "uebrig" : z === "Rücklagen" ? "ruecklage" : (GRUPPEN_FARBE[z] || "grau-fest");
+    const band = (xa, ya, xb, yb, h, cls, titel) => {
+      const mx = (xa + xb) / 2;
+      return `<path class="band ${cls}" d="M${xa},${ya} C${mx},${ya} ${mx},${yb} ${xb},${yb} L${xb},${yb + h} C${mx},${yb + h} ${mx},${ya + h} ${xa},${ya + h} Z"><title>${esc(titel)}</title></path>`;
+    };
 
-    // Bänder: der linke Block (alle Quellen zusammen) verteilt sich der Reihe nach auf die rechten Knoten
-    const lx = linksB, rx = rechtsX;
-    const linksOben = linksPos[0].y;
-    let quelleY = linksOben;
-    const linksGesamtH = linksPos[linksPos.length - 1].y + linksPos[linksPos.length - 1].h - linksOben;
-    const rechtsWert = rechtsPos.reduce((s, r) => s + r.wert, 0);
-    const baender = rechtsPos.map(r => {
-      const h0 = r.wert / rechtsWert * linksGesamtH;   // Anteil am linken Block
-      const y0 = quelleY; quelleY += h0;
-      const mx = (lx + knotenB + rx) / 2;
-      return `<path class="band f-${r.farbe}" d="M${lx + knotenB},${y0} C${mx},${y0} ${mx},${r.y} ${rx},${r.y} L${rx},${r.y + r.h} C${mx},${r.y + r.h} ${mx},${y0 + h0} ${lx + knotenB},${y0 + h0} Z"><title>${esc(r.name)}: ${Format.chf(r.wert)}</title></path>`;
-    }).join("");
-
-    const linksSvg = linksPos.map(l => `
-      <rect class="knoten ${l.minus ? "f-schlecht" : "f-ein"}" x="${lx}" y="${l.y}" width="${knotenB}" height="${l.h}" rx="3"/>
-      <text class="fluss-name" x="${lx - 8}" y="${l.y + l.h / 2 - (l.h > 30 ? 7 : 0)}" text-anchor="end" dominant-baseline="middle">${esc(kuerze(l.name, schmal ? 11 : 18))}</text>
-      ${l.h > 30 ? `<text class="fluss-wert" x="${lx - 8}" y="${l.y + l.h / 2 + 9}" text-anchor="end" dominant-baseline="middle">${Format.zahl(l.wert)}</text>` : ""}`).join("");
-
-    const rechtsSvg = rechtsPos.map(r => `
-      <rect class="knoten f-${r.farbe}" x="${rx}" y="${r.y}" width="${knotenB}" height="${r.h}" rx="3"/>
-      ${r.h > 30
-        ? `<text class="fluss-name" x="${rx + knotenB + 8}" y="${r.y + r.h / 2 - 7}" dominant-baseline="middle">${esc(kuerze(r.name, schmal ? 14 : 26))}</text>
-           <text class="fluss-wert" x="${rx + knotenB + 8}" y="${r.y + r.h / 2 + 9}" dominant-baseline="middle">${Format.zahl(r.wert)} · ${prozent(r.wert)}</text>`
-        : `<text class="fluss-name" x="${rx + knotenB + 8}" y="${r.y + r.h / 2}" dominant-baseline="middle">${esc(kuerze(r.name, schmal ? 11 : 26))} <tspan class="fluss-wert">${prozent(r.wert)}</tspan></text>`}`).join("");
-
-    $("fluss").innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="xMinYMin meet">${baender}${linksSvg}${rechtsSvg}</svg>`;
+    // Bänder Quelle → Konto (gestapelt an beiden Enden)
+    const offQ = new Map(), offKein = new Map(), offKaus = new Map(), offZ = new Map();
+    const l1 = [...links1].filter(l => qSort.includes(l.q) && kpos(l.k))
+      .sort((a, b) => qSort.indexOf(a.q) - qSort.indexOf(b.q) || kontenSort.indexOf(a.k) - kontenSort.indexOf(b.k));
+    let svg = "";
+    for (const l of l1) {
+      const qp = qpos(l.q), kp = kpos(l.k), h = l.wert * skala;
+      const ya = qp.y + (offQ.get(l.q) || 0), yb = kp.y + (offKein.get(l.k) || 0);
+      offQ.set(l.q, (offQ.get(l.q) || 0) + h); offKein.set(l.k, (offKein.get(l.k) || 0) + h);
+      svg += band(x0 + knB, ya, x1, yb, h, l.q.minus ? "f-schlecht" : "f-uebrig",
+        `${l.q.name} → ${l.k}${l.via ? ` (Dauerauftrag vom ${l.via})` : ""}: ${Format.chf(l.wert)}`);
+    }
+    const l2 = [...links2].sort((a, b) => kontenSort.indexOf(a.k) - kontenSort.indexOf(b.k) || zSort.indexOf(a.z) - zSort.indexOf(b.z));
+    for (const l of l2) {
+      const kp = kpos(l.k), zp = zpos(l.z), h = l.wert * skala;
+      if (!kp || !zp) continue;
+      const ya = kp.y + (offKaus.get(l.k) || 0), yb = zp.y + (offZ.get(l.z) || 0);
+      offKaus.set(l.k, (offKaus.get(l.k) || 0) + h); offZ.set(l.z, (offZ.get(l.z) || 0) + h);
+      svg += band(x1 + knB, ya, x2, yb, h, `f-${farbeZiel(l.z)}`, `${l.k} → ${l.z}: ${Format.chf(l.wert)}`);
+    }
+    // Knoten + Beschriftung
+    for (const p of qPos) {
+      svg += `<rect class="knoten ${p.n.minus ? "f-schlecht" : "f-ein"}" x="${x0}" y="${p.y}" width="${knB}" height="${p.h}" rx="3"><title>${esc(p.n.name)} (${esc(p.n.konto)}): ${Format.chf(p.n.wert)}</title></rect>`;
+      svg += `<text class="fluss-name" x="${x0 - 8}" y="${p.y + p.h / 2 - (p.h > 30 ? 7 : 0)}" text-anchor="end" dominant-baseline="middle">${esc(kuerze(p.n.name, schmal ? 10 : 20))}</text>`;
+      if (p.h > 30) svg += `<text class="fluss-wert" x="${x0 - 8}" y="${p.y + p.h / 2 + 9}" text-anchor="end" dominant-baseline="middle">${Format.zahl(p.n.wert)}</text>`;
+    }
+    for (const p of kPos) {
+      svg += `<rect class="knoten f-konto" x="${x1}" y="${p.y}" width="${knB}" height="${p.h}" rx="3"><title>${esc(p.n)}</title></rect>`;
+      svg += `<text class="fluss-konto" x="${x1 + knB / 2}" y="${p.y - 7}" text-anchor="middle">${esc(kuerze(p.n, schmal ? 12 : 22))} · ${Format.zahl(kontoWert(p.n))}</text>`;
+    }
+    for (const p of zPos) {
+      const w = zielSumme[p.n];
+      svg += `<rect class="knoten f-${farbeZiel(p.n)}" x="${x2}" y="${p.y}" width="${knB}" height="${p.h}" rx="3"></rect>`;
+      svg += p.h > 30
+        ? `<text class="fluss-name" x="${x2 + knB + 8}" y="${p.y + p.h / 2 - 7}" dominant-baseline="middle">${esc(kuerze(p.n, schmal ? 13 : 26))}</text>
+           <text class="fluss-wert" x="${x2 + knB + 8}" y="${p.y + p.h / 2 + 9}" dominant-baseline="middle">${Format.zahl(w)} · ${prozent(w)}</text>`
+        : `<text class="fluss-name" x="${x2 + knB + 8}" y="${p.y + p.h / 2}" dominant-baseline="middle">${esc(kuerze(p.n, schmal ? 11 : 26))} <tspan class="fluss-wert">${prozent(w)}</tspan></text>`;
+    }
+    $("fluss").innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="xMinYMin meet">${svg}</svg>`;
   }
 
   function kuerze(t, n) { t = String(t); return t.length > n ? `${t.slice(0, n - 1)}…` : t; }
@@ -992,7 +1083,7 @@
     const A = window.Analyse;
     const opt = fixOptionen();
     const nicht = String(zustand.einst.umbuchungen || "").split(",").map(w => w.trim().toLowerCase()).filter(Boolean);
-    const alle = zustand.fixkosten || [];
+    const alle = fixEff();
     // Haushalts-Fixkosten: echte Ausgaben, ohne «nicht mitzählen» (z.B. Geschäftliches)
     const posten = alle.filter(f => A.fixArtGenau(f, opt) === "ausgabe" && !nicht.includes(String(f.gruppe).toLowerCase()))
       .map(f => ({ ...f, jahr: f.betrag * f.haeufigkeit, marke: fixMarken[fixSchluessel(f)] || "" }))
@@ -1066,6 +1157,7 @@
       <p class="hinweis">Einzeln klein – zusammen oft ein schöner Betrag.</p>`;
 
     // Posten-Liste
+    const kontenListe = [...new Set(alle.map(f => f.kontoExcel || f.konto).concat(alle.map(f => f.konto)))].sort();
     const zeigeAlle = zustand.fxAlle;
     const liste = zeigeAlle ? posten : posten.slice(0, 10);
     const maxJ = posten[0].jahr || 1;
@@ -1077,7 +1169,14 @@
         </div>
         <div class="spur" aria-hidden="true"><div class="fuellung" data-breite="${Math.max(1, f.jahr / maxJ * 100).toFixed(1)}"></div></div>
         <div class="fx-fuss">
-          <span class="detail">${esc(f.gruppe)} · ${RHYTHMUS_KURZ(f.haeufigkeit)} ${Format.chf(f.betrag)} · ${esc(f.konto)}${f.ueberCler ? ' · <em class="marke">Cler</em>' : ""}</span>
+          <span class="detail">${esc(f.gruppe)} · ${RHYTHMUS_KURZ(f.haeufigkeit)} ${Format.chf(f.betrag)}${f.ueberCler ? ' · <em class="marke">Cler</em>' : ""}</span>
+          <span class="fx-zuordnung">
+            <label>Konto <select data-zuo="${esc(zuordnungSchluessel(f))}" data-feld="konto" aria-label="Konto für ${esc(f.posten)}">
+              ${kontenListe.map(k => `<option ${k === f.konto ? "selected" : ""}>${esc(k)}</option>`).join("")}</select></label>
+            <label>Bereich <select data-zuo="${esc(zuordnungSchluessel(f))}" data-feld="bereich" aria-label="Bereich für ${esc(f.posten)}">
+              ${window.Analyse.HAUPTGRUPPEN_NAMEN.map(g => `<option ${g === (f.bereich || window.Analyse.hauptgruppe(f.gruppe)) ? "selected" : ""}>${esc(g)}</option>`).join("")}</select></label>
+            ${f.kontoExcel && f.kontoExcel !== f.konto ? `<em class="marke">geändert (Excel: ${esc(f.kontoExcel)})</em>` : ""}
+          </span>
           <span class="umschalter klein fx-marke" role="group" aria-label="Markierung für ${esc(f.posten)}">
             <button type="button" data-fx="${esc(fixSchluessel(f))}" data-marke="pruefen" aria-pressed="${f.marke === "pruefen"}">Prüfen</button>
             <button type="button" data-fx="${esc(fixSchluessel(f))}" data-marke="kuendigen" aria-pressed="${f.marke === "kuendigen"}">Kündigen</button>
@@ -1175,7 +1274,7 @@
 
   function fixkostenKarten() {
     const A = window.Analyse;
-    const fk = zustand.fixkosten.filter(f => zustand.kontoFilter === "alle" || f.konto === zustand.kontoFilter);
+    const fk = fixEff().filter(f => zustand.kontoFilter === "alle" || f.konto === zustand.kontoFilter);
     for (const id of ["karte-fix", "karte-faellig", "karte-cler"]) $(id).hidden = !zustand.fixkosten.length;
     if (!zustand.fixkosten.length) return;
 
@@ -1606,6 +1705,18 @@
     if (!fixMarken[k]) delete fixMarken[k];
     speicherSchreiben(SPEICHER_FIXMARKEN, fixMarken);
     fixkostenAnsicht();
+  });
+  $("fx-posten").addEventListener("change", e => {
+    const sel = e.target.closest("select[data-zuo]");
+    if (!sel) return;
+    const k = sel.dataset.zuo;
+    const orig = (zustand.fixkosten || []).find(f => zuordnungSchluessel(f) === k);
+    const z = { ...(fixZuordnung[k] || {}) };
+    if (sel.dataset.feld === "konto") z.konto = sel.value === orig?.konto ? "" : sel.value;
+    else z.bereich = orig && sel.value === window.Analyse.hauptgruppe(orig.gruppe) ? "" : sel.value;
+    if (!z.konto && !z.bereich) delete fixZuordnung[k]; else fixZuordnung[k] = z;
+    speicherSchreiben(SPEICHER_ZUORDNUNG, fixZuordnung);
+    setzeBuchungen(zustand.buchungen, false);   // alles neu rechnen (Fluss, Bereiche, Budget)
   });
   $("fx-alle").addEventListener("click", () => { zustand.fxAlle = !zustand.fxAlle; fixkostenAnsicht(); });
   $("v-erfassen").addEventListener("click", oeffneErfassung);

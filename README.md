@@ -8,6 +8,7 @@ Die Seite öffnet deine Excel-Datei und rechnet **alles direkt in deinem Browser
 
 Eine Seite, die man von oben nach unten liest. Jede Karte beantwortet eine Frage:
 
+0. **Geldfluss:** Einkommen → Konto (Privat, Gem. Konto) → wofür jedes Konto bezahlt. Daueraufträge zwischen deinen Konten werden als «Lohn → Gem. Konto» gezeigt.
 1. **Wie viel besitze ich?** Nettovermögen als grosse Zahl, die Veränderung seit dem Vormonat und Balken pro Monat
 2. **Wie lief dieser Monat?** Einnahmen und Ausgaben (fix und variabel) als Balken, dazu «Gespart» gross
 3. **Bin ich im Budget?** ein Balken pro Topf (Privat, Gem. Konto)
@@ -25,6 +26,7 @@ Oben im Reiter **«Fixkosten»** (braucht dein Finanz-Excel mit dem Blatt «Fixk
 - die Aufteilung **nach Gruppe**
 - **Kleine Posten:** wie viel alle Abos und alle Posten unter CHF 30 im Monat zusammen pro Jahr kosten
 - **alle Posten, die teuersten zuerst**, pro Jahr gerechnet. Bei jedem Posten kannst du **«Prüfen»** oder **«Kündigen»** antippen. Oben siehst du dann sofort: *«Wenn du 2 Posten kündigst: + CHF … pro Jahr, Sparquote … → …»*. Die Markierungen bleiben nur auf deinem Gerät.
+- **Konto und Bereich selbst zuordnen:** Bei jedem Posten kannst du das Konto (z.B. Privat oder Gem. Konto) und den Bereich ändern. Standard ist die Spalte «Konto» aus deinem Excel. Eigene Änderungen werden als «geändert» markiert und nur auf dem Gerät gespeichert.
 - **Kalender** der nächsten 12 Monate: wann welche Jahres- und Quartalsrechnungen kommen. Dazu ein Hinweis, welche Posten noch keine Fälligkeit haben.
 
 ## Vermögen erfassen (jeden Monat am 30.)
