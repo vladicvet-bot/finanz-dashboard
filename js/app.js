@@ -622,6 +622,7 @@
     $("v-leer").hidden = !leer;
     for (const id of ["karte-verteilung", "karte-invest"]) $(id).hidden = leer;
     $("karte-pikett").hidden = zustand.quelle?.beispiel || !zustand.vmLokal.pikett.length;
+    kopierKnopfText();
     pikettListe();
     if (leer) {
       $("v-total").textContent = "–";
@@ -820,11 +821,17 @@
     zustand.vmLokal.eintraege.push(...neu);
     if (pikett) zustand.vmLokal.pikett.push(pikett);
     speichereVmLokal();
+    const text = vermoegenTSV(neu);
+    const kopiert = neu.length && navigator.clipboard && window.isSecureContext
+      ? navigator.clipboard.writeText(text).then(() => true, () => false) : Promise.resolve(false);
     $("dlg-erfassung").close();
     nachVermoegenAenderung();
-    zeigeKopieren(neu, pikett ? [pikett] : [],
-      `${neu.length} ${neu.length === 1 ? "Wert" : "Werte"} gespeichert${pikett ? " + Pikett" : ""}.` +
-      (uebersprungen.length ? ` Nicht überschrieben: ${uebersprungen.join(", ")}.` : ""));
+    const info = `${neu.length} ${neu.length === 1 ? "Wert" : "Werte"} gespeichert${pikett ? " + Pikett" : ""}.` +
+      (uebersprungen.length ? ` Nicht überschrieben: ${uebersprungen.join(", ")}.` : "");
+    kopiert.then(ok => {
+      if (ok) markiereKopiert(neu);
+      zeigeKopieren(neu, pikett ? [pikett] : [], info, ok);
+    });
   }
 
   // ---------- Daten einfügen ----------
@@ -852,7 +859,7 @@
     melde(teile.join(" "));
   }
 
-  // ---------- Für Sheet kopieren ----------
+  // ---------- Für Excel kopieren ----------
 
   const zahlSheet = v => v == null ? "" : (Math.round(v * 100) / 100).toFixed(2);
   function vermoegenTSV(liste) {
@@ -862,11 +869,45 @@
     return liste.map(p => [Format.datum(p.datum), "Pikett-Entschädigung", "Pikett", zahlSheet(p.betrag), "Privat",
       `${p.anzahl ?? "?"} Dienste · auf Kreditkarte überwiesen: ${p.aufKK ? "ja" : "nein"}`].join("\t")).join("\n");
   }
-  function zeigeKopieren(eintraege, pikett, info) {
-    $("kop-info").textContent = `${info ? `${info} ` : ""}Kopieren und im Sheet in die erste freie Zeile (Spalte A) einfügen.`;
+  // Noch nicht ins Excel kopierte Erfassungen (was schon im geladenen Excel steht, zählt als kopiert)
+  function offeneErfassungen() {
+    const A = window.Analyse;
+    const imExcel = new Set((zustand.vermoegen || []).map(A.vmSchluessel));
+    const pikettImExcel = m => zustand.buchungen.some(b => b.quelle === "sheet" && b.einnahme && /pikett/i.test(b.kategorieDatei) && b.datum.slice(0, 7) === m);
+    return {
+      eintraege: zustand.vmLokal.eintraege.filter(e => !e.kopiert && !imExcel.has(A.vmSchluessel(e))).sort((a, b) => a.datum.localeCompare(b.datum)),
+      pikett: zustand.vmLokal.pikett.filter(p => !p.kopiert && !pikettImExcel(p.datum.slice(0, 7))).sort((a, b) => a.datum.localeCompare(b.datum)),
+    };
+  }
+
+  function kopierKnopfText() {
+    const o = offeneErfassungen();
+    const n = o.eintraege.length + o.pikett.length;
+    $("v-kopieren-alle").textContent = n ? `Für Excel kopieren (${n} neu)` : "Für Excel kopieren";
+    $("v-kopieren-alle").classList.toggle("knopf-hinweis", n > 0);
+  }
+
+  function markiereKopiert(liste) {
+    for (const e of liste) e.kopiert = true;
+    speichereVmLokal();
+    kopierKnopfText();
+  }
+
+  // Text in die Zwischenablage (mit Rückfall für ältere Browser)
+  function inZwischenablage(text, feld) {
+    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text).then(() => true, () => false);
+    try { feld.select(); return Promise.resolve(document.execCommand("copy")); } catch { return Promise.resolve(false); }
+  }
+
+  function zeigeKopieren(eintraege, pikett, info, autoKopiert = false) {
+    zustand.kopierListe = { eintraege, pikett };
+    $("kop-info").textContent = `${info ? `${info} ` : ""}${autoKopiert
+      ? "✓ Die Vermögenszeilen sind schon kopiert – öffne dein Excel, Blatt «Vermögen», tippe in Spalte A auf die erste leere Zeile und füge ein."
+      : "Kopieren und im Excel in die erste leere Zeile (Spalte A) einfügen."}`;
     $("kop-vermoegen").value = vermoegenTSV(eintraege);
     $("kop-pikett").value = pikettTSV(pikett);
     $("kop-pikett-block").hidden = !pikett.length;
+    $("kop-vermoegen").closest("form").querySelector('[data-kopiere="kop-vermoegen"]').textContent = autoKopiert ? "Kopiert ✓ (nochmals)" : "Kopieren";
     $("dlg-kopieren").showModal();
   }
 
@@ -875,7 +916,7 @@
   const SPEICHER_VM = "finanzDashboard.vermoegenLokal.v1";
   function speichereVmLokal() {
     if (!speicherSchreiben(SPEICHER_VM, zustand.vmLokal)) {
-      melde("Achtung: Die Erfassung konnte auf diesem Gerät nicht gespeichert werden (privates Surfen?). Bitte jetzt «Für Sheet kopieren» nutzen.", true);
+      melde("Achtung: Die Erfassung konnte auf diesem Gerät nicht gespeichert werden (privates Surfen?). Bitte jetzt «Für Excel kopieren» nutzen.", true);
     }
   }
 
@@ -1362,18 +1403,26 @@
     const kop = e.target.closest("[data-kopiere]");
     if (kop) {
       const feld = $(kop.dataset.kopiere);
-      const fertig = () => { kop.textContent = "Kopiert ✓"; setTimeout(() => { kop.textContent = "Kopieren"; }, 2000); };
-      (navigator.clipboard ? navigator.clipboard.writeText(feld.value) : Promise.reject()).then(fertig)
-        .catch(() => { feld.select(); document.execCommand("copy"); fertig(); });
+      inZwischenablage(feld.value, feld).then(ok => {
+        kop.textContent = ok ? "Kopiert ✓" : "Bitte Text markieren und kopieren";
+        if (ok && zustand.kopierListe) {
+          markiereKopiert(kop.dataset.kopiere === "kop-pikett" ? zustand.kopierListe.pikett : zustand.kopierListe.eintraege);
+        }
+      });
     }
   });
   $("v-erfassen").addEventListener("click", oeffneErfassung);
   $("v-import").addEventListener("click", () => {
     if (zustand.quelle?.beispiel) { melde("Bei den Beispieldaten kann nichts eingefügt werden.", true); return; } $("imp-meldung").hidden = true; $("dlg-import").showModal(); });
   $("v-kopieren-alle").addEventListener("click", () => {
+    const o = offeneErfassungen();
+    if (o.eintraege.length || o.pikett.length) {
+      zeigeKopieren(o.eintraege, o.pikett, `${o.eintraege.length} Vermögenswerte${o.pikett.length ? ` und ${o.pikett.length}× Pikett` : ""} sind noch nicht im Excel.`);
+      return;
+    }
     const lokal = [...zustand.vmLokal.eintraege].sort((a, b) => a.datum.localeCompare(b.datum));
     zeigeKopieren(lokal, [...zustand.vmLokal.pikett].sort((a, b) => a.datum.localeCompare(b.datum)),
-      lokal.length ? `Alle ${lokal.length} hier erfassten Vermögenswerte.` : "Noch keine Werte hier erfasst.");
+      lokal.length ? `Alles ist schon kopiert. Hier nochmals alle ${lokal.length} in der App erfassten Werte.` : "Noch keine Werte in der App erfasst.");
   });
   $("form-erfassung").addEventListener("submit", e => { e.preventDefault(); speichereErfassung(); });
   $("form-import").addEventListener("submit", e => { e.preventDefault(); importiereText(); });
@@ -1397,7 +1446,7 @@
   for (const id of ["e-kat", "e-spar", "e-gross", "e-umb", "e-regeln", "e-ignorieren", "e-ruecklagen", "e-cler-saldo", "e-cler-ein"]) $(id).addEventListener("change", einstellungAendern);
 
   $("loeschen").addEventListener("click", () => {
-    if (!confirm("Gespeicherte Finanzdaten von diesem Gerät löschen – auch die hier erfassten Vermögenswerte und Pikett?\n\nTipp: vorher «Für Sheet kopieren» nutzen. Deine Excel-Datei selbst bleibt unverändert.")) return;
+    if (!confirm("Gespeicherte Finanzdaten von diesem Gerät löschen – auch die hier erfassten Vermögenswerte und Pikett?\n\nTipp: vorher «Für Excel kopieren» nutzen. Deine Excel-Datei selbst bleibt unverändert.")) return;
     speicherLoeschen(SPEICHER_DATEN);
     speicherLoeschen(SPEICHER_VM);
     zustand.vmLokal = { eintraege: [], pikett: [], konten: [] };

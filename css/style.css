@@ -637,3 +637,4 @@ input[type="date"] { font: inherit; font-size: 16px; color: var(--text); backgro
 .balken .fuellung.f-s5 { background: var(--s5); } .balken .fuellung.f-s6 { background: var(--s6); }
 .balken .fuellung.f-s7 { background: var(--s7); } .balken .fuellung.f-s8 { background: var(--s8); }
 .balken .fuellung.f-grau-fest { background: var(--grau-fest); }
+.knopf-hinweis { border-color: var(--s1); color: var(--s1); }

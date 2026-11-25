@@ -40,7 +40,7 @@ Oben schaltest du zwischen **«Übersicht»** und **«Vermögen»** um.
 
 **Startdaten oder Verlauf übernehmen:** Mit **«Daten einfügen»** fügst du eine Tabelle ein, eine Zeile pro Konto: `Stichtag · Konto / Anlage · Art · Stand CHF · Eingezahlt CHF · Notiz`. Die Spalten sind mit Tabulator getrennt (aus Excel/Sheets kopiert) oder mit Semikolon. Daraus lernt die App auch deine Kontenliste fürs Formular.
 
-**Gespeichert** werden die Erfassungen nur in diesem Browser auf diesem Gerät. Kopier sie darum nach jeder Erfassung ins Sheet. Mit «Für Sheet kopieren» bekommst du jederzeit alle hier erfassten Werte.
+**Gespeichert** werden die Erfassungen nur in diesem Browser auf diesem Gerät. Kopier sie darum nach jeder Erfassung ins Sheet. Mit «Für Excel kopieren» bekommst du jederzeit alle hier erfassten Werte.
 
 ## Empfohlen: dein Finanz-Sheet als Excel
 
