@@ -869,6 +869,7 @@
       if (!opt.topfSicht && (art === "intern" || art === "transfer" || art === "ruecklage")) continue;
       const istEinnahme = art === "einnahme" || art === "intern";
       for (const m of monate) {
+        if (f.gekuendigtAb && m >= f.gekuendigtAb) continue;   // gekündigt: ab diesem Monat nicht mehr
         liste.push({
           datum: `${m}-01`,
           beschreibung: f.posten,

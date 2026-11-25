@@ -183,12 +183,28 @@
   // Eigene Zuordnung pro Fixkosten-Posten (Konto, Bereich) – nur auf diesem Gerät
   const SPEICHER_ZUORDNUNG = "finanzDashboard.fixZuordnung.v1";
   const fixZuordnung = speicherLesen(SPEICHER_ZUORDNUNG) || {};
-  const zuordnungSchluessel = f => `${f.posten}|${f.gruppe}`;
+  const zuordnungSchluessel = f => f.schluessel || `${f.posten}|${f.gruppe}`;
+  // Fixkosten mit eigenen Anpassungen: Konto, Bereich, Name (Anbieter), Betrag, Kündigung
   function fixEff() {
     return (zustand.fixkosten || []).map(f => {
-      const z = fixZuordnung[zuordnungSchluessel(f)];
-      return z ? { ...f, kontoExcel: f.konto, konto: z.konto || f.konto, bereich: z.bereich || "" } : f;
+      const schluessel = `${f.posten}|${f.gruppe}`;
+      const g = { ...f, schluessel, kontoExcel: f.konto, postenExcel: f.posten, betragExcel: f.betrag };
+      const z = fixZuordnung[schluessel];
+      if (!z) return g;
+      if (z.konto) g.konto = z.konto;
+      if (z.bereich) g.bereich = z.bereich;
+      if (z.name) g.posten = z.name;
+      if (z.betrag != null) { g.betrag = z.betrag; g.proMonat = Math.round(z.betrag * g.haeufigkeit / 12 * 100) / 100; }
+      if (z.gekuendigtAb) g.gekuendigtAb = z.gekuendigtAb;
+      return g;
     });
+  }
+  // Nur Posten, die heute noch laufen (für Kalender, Cler-Topf, Vorschau)
+  const fixAktiv = () => { const h = new Date().toISOString().slice(0, 7); return fixEff().filter(f => !f.gekuendigtAb || f.gekuendigtAb > h); };
+  function speichereZuordnung(k, z) {
+    if (!Object.values(z).some(v => v !== "" && v != null)) delete fixZuordnung[k]; else fixZuordnung[k] = z;
+    speicherSchreiben(SPEICHER_ZUORDNUNG, fixZuordnung);
+    setzeBuchungen(zustand.buchungen, false);
   }
 
   function fixOptionen() {
@@ -372,7 +388,7 @@
     if (!zustand.fixkosten.length) { el.innerHTML = ""; return; }
     const heute = new Date().toISOString().slice(0, 7);
     const ab = zustand.monat < heute ? heute : zustand.monat;
-    const f = window.Analyse.faelligkeiten(fixEff(), ab, 2, fixOptionen()).filter(x => x.posten.length);
+    const f = window.Analyse.faelligkeiten(fixAktiv(), ab, 2, fixOptionen()).filter(x => x.posten.length);
     el.innerHTML = f.length ? `<h3 class="unter-titel">Nächste Rechnungen</h3><ul class="kurzliste">${f.flatMap(x =>
       x.posten.slice(0, 3).map(p => `<li><span>${Format.monatKurz(x.monat)} · ${esc(p.posten)}</span><span>${Format.chf(p.betrag)}</span></li>`)).join("")}</ul>` : "";
   }
@@ -492,11 +508,12 @@
     }
     quellen.push(...Object.values(qMap));
     // Rücklagen (z.B. Ferien) verlassen das Konto ebenfalls
-    for (const f of fixEff()) if (A.fixArtGenau(f, opt) === "ruecklage") plus(f.konto, "Rücklagen", f.proMonat);
+    const laufend = fixEff().filter(f => !f.gekuendigtAb || pm.monat < f.gekuendigtAb);
+    for (const f of laufend) if (A.fixArtGenau(f, opt) === "ruecklage") plus(f.konto, "Rücklagen", f.proMonat);
     // Interne Überweisungen (z.B. Privat → Gem. Konto)
     const transfer = [];                   // { von, nach, wert }
-    const kontoMitUeberweisung = fixEff().find(f => A.fixArtGenau(f, opt) === "transfer")?.konto;
-    for (const f of fixEff()) {
+    const kontoMitUeberweisung = laufend.find(f => A.fixArtGenau(f, opt) === "transfer")?.konto;
+    for (const f of laufend) {
       if (A.fixArtGenau(f, opt) !== "intern") continue;
       const von = f.vonKonto || kontoMitUeberweisung;
       if (von && von !== f.konto) transfer.push({ von, nach: f.konto, wert: f.proMonat });
@@ -1064,7 +1081,7 @@
 
   const SPEICHER_FIXMARKEN = "finanzDashboard.fixMarken.v1";
   const fixMarken = speicherLesen(SPEICHER_FIXMARKEN) || {};
-  const fixSchluessel = f => `${f.posten}|${f.gruppe}|${f.konto}`;
+  const fixSchluessel = f => `${f.schluessel || `${f.posten}|${f.gruppe}`}|${f.kontoExcel || f.konto}`;
   const RHYTHMUS_KURZ = h => h >= 12 ? "monatlich" : h === 4 ? "vierteljährlich" : h === 2 ? "halbjährlich" : h === 1 ? "jährlich" : h < 1 ? `alle ${Math.round(1 / h)} Jahre` : `${h}× pro Jahr`;
 
   // Durchschnitt der letzten 3 abgeschlossenen Monate (Basis für Anteil am Einkommen und Sparquote)
@@ -1079,11 +1096,21 @@
     return { monate: m, einnahmen: s.ein / m.length, ausgaben: s.aus / m.length };
   }
 
+  function naechsterMonat() {
+    const h = new Date();
+    const d = new Date(h.getFullYear(), h.getMonth() + 1, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  }
+
   function fixkostenAnsicht() {
     const A = window.Analyse;
     const opt = fixOptionen();
     const nicht = String(zustand.einst.umbuchungen || "").split(",").map(w => w.trim().toLowerCase()).filter(Boolean);
-    const alle = fixEff();
+    const alleMitGekuendigt = fixEff();
+    const heuteM = new Date().toISOString().slice(0, 7);
+    const alle = alleMitGekuendigt.filter(f => !f.gekuendigtAb || f.gekuendigtAb > heuteM);
+    const gekuendigt = alleMitGekuendigt.filter(f => f.gekuendigtAb && A.fixArtGenau(f, opt) === "ausgabe")
+      .map(f => ({ ...f, jahr: f.betrag * f.haeufigkeit }));
     // Haushalts-Fixkosten: echte Ausgaben, ohne «nicht mitzählen» (z.B. Geschäftliches)
     const posten = alle.filter(f => A.fixArtGenau(f, opt) === "ausgabe" && !nicht.includes(String(f.gruppe).toLowerCase()))
       .map(f => ({ ...f, jahr: f.betrag * f.haeufigkeit, marke: fixMarken[fixSchluessel(f)] || "" }))
@@ -1123,6 +1150,9 @@
     const kuendigen = posten.filter(f => f.marke === "kuendigen");
     const pruefen = posten.filter(f => f.marke === "pruefen");
     const sumJahr = l => l.reduce((s, f) => s + f.jahr, 0);
+    const gekuendigtJahr = gekuendigt.reduce((s, f) => s + f.jahr, 0);
+    const gekuendigtHtml = gekuendigt.length ? `<div class="fx-pot gut erledigt">${ICONS.gut}<div><strong>Schon gekündigt: ${Format.chf(gekuendigtJahr)} pro Jahr gespart</strong>
+      <span>${gekuendigt.length} ${gekuendigt.length === 1 ? "Posten" : "Posten"} – siehe «Gekündigt» unten</span></div></div>` : "";
     if (kuendigen.length || pruefen.length) {
       const plus = sumJahr(kuendigen);
       let quote = "";
@@ -1132,12 +1162,13 @@
         quote = ` · Sparquote <strong>${Format.prozent(alt)} → ${Format.prozent(neu)}</strong>`;
       }
       $("fx-potenzial").innerHTML = `
-        ${kuendigen.length ? `<div class="fx-pot gut">${ICONS.gut}<div><strong>Wenn du ${kuendigen.length} ${kuendigen.length === 1 ? "Posten kündigst" : "Posten kündigst"}: + ${Format.chf(plus)} pro Jahr</strong>
+        ${kuendigen.length ? `<div class="fx-pot gut">${ICONS.gut}<div><strong>Wenn du ${kuendigen.length} Posten kündigst: + ${Format.chf(plus)} pro Jahr</strong>
           <span>= ${Format.chf(plus / 12)} pro Monat${quote}</span></div></div>` : ""}
+        ${gekuendigtHtml}
         ${pruefen.length ? `<div class="fx-pot">${ICONS.info}<div><strong>${pruefen.length} ${pruefen.length === 1 ? "Posten" : "Posten"} zum Prüfen: ${Format.chf(sumJahr(pruefen))} pro Jahr</strong>
           <span>${pruefen.slice(0, 4).map(f => esc(f.posten)).join(", ")}${pruefen.length > 4 ? " …" : ""}</span></div></div>` : ""}`;
     } else {
-      $("fx-potenzial").innerHTML = '<p class="hinweis">Tipp: Markiere unten Posten mit «Prüfen» oder «Kündigen», dann siehst du hier dein Sparpotenzial.</p>';
+      $("fx-potenzial").innerHTML = gekuendigtHtml || '<p class="hinweis">Tipp: Markiere unten Posten mit «Prüfen» oder «Kündigen», dann siehst du hier dein Sparpotenzial.</p>';
     }
 
     // Nach Gruppe (pro Jahr)
@@ -1164,7 +1195,9 @@
     $("fx-posten").innerHTML = liste.map(f => `
       <li class="${f.marke}">
         <div class="fx-kopf">
-          <span class="fx-name">${esc(f.posten)}</span>
+          <span class="fx-name">${esc(f.posten)} <button class="link-knopf fx-stift" type="button" data-umbenennen="${esc(zuordnungSchluessel(f))}" aria-label="Name oder Betrag von ${esc(f.posten)} ändern">✎</button>
+            ${f.posten !== f.postenExcel ? `<em class="marke">umbenannt (Excel: ${esc(f.postenExcel)})</em>` : ""}
+            ${f.betrag !== f.betragExcel ? `<em class="marke">Betrag geändert (Excel: ${Format.chf(f.betragExcel)})</em>` : ""}</span>
           <span class="fx-betrag">${Format.chf(f.jahr)}<small>/Jahr</small></span>
         </div>
         <div class="spur" aria-hidden="true"><div class="fuellung" data-breite="${Math.max(1, f.jahr / maxJ * 100).toFixed(1)}"></div></div>
@@ -1182,9 +1215,20 @@
             <button type="button" data-fx="${esc(fixSchluessel(f))}" data-marke="kuendigen" aria-pressed="${f.marke === "kuendigen"}">Kündigen</button>
           </span>
         </div>
+        ${f.marke === "kuendigen" ? `<div class="fx-bestaetigen">
+          <label>Gilt ab <input type="month" value="${naechsterMonat()}" data-ab="${esc(zuordnungSchluessel(f))}"></label>
+          <button class="knopf knopf-klein knopf-gut" type="button" data-bestaetigen="${esc(zuordnungSchluessel(f))}" data-marke-key="${esc(fixSchluessel(f))}">✓ Kündigung bestätigen</button>
+          <span class="klein-hinweis">Ab diesem Monat zählt der Posten nicht mehr zu deinen Fixkosten.</span>
+        </div>` : ""}
       </li>`).join("");
     for (const el of $("fx-posten").querySelectorAll("[data-breite]")) el.style.width = `${el.dataset.breite}%`;
     $("fx-alle").hidden = posten.length <= 10;
+    // Gekündigte Posten
+    $("fx-gekuendigt-karte").hidden = !gekuendigt.length;
+    $("fx-gekuendigt").innerHTML = gekuendigt.sort((a, b) => b.jahr - a.jahr).map(f => `
+      <li><span><strong>${esc(f.posten)}</strong><small>ab ${Format.monat(f.gekuendigtAb)} · ${esc(f.gruppe)}</small></span>
+        <span class="fx-gespart">+ ${Format.chf(f.jahr)}/Jahr</span>
+        <button class="knopf knopf-klein" type="button" data-rueckgaengig="${esc(zuordnungSchluessel(f))}">Rückgängig</button></li>`).join("");
     $("fx-alle").textContent = zeigeAlle ? "Nur die 10 teuersten zeigen" : `Alle ${posten.length} Posten anzeigen`;
 
     // Kalender 12 Monate
@@ -1274,7 +1318,7 @@
 
   function fixkostenKarten() {
     const A = window.Analyse;
-    const fk = fixEff().filter(f => zustand.kontoFilter === "alle" || f.konto === zustand.kontoFilter);
+    const fk = fixAktiv().filter(f => zustand.kontoFilter === "alle" || f.konto === zustand.kontoFilter);
     for (const id of ["karte-fix", "karte-faellig", "karte-cler"]) $(id).hidden = !zustand.fixkosten.length;
     if (!zustand.fixkosten.length) return;
 
@@ -1309,7 +1353,7 @@
       </li>`).join("");
 
     // 3) Cler-Topf: Bedarf und Prognose
-    const bedarf = A.clerBedarfProMonat(zustand.fixkosten);
+    const bedarf = A.clerBedarfProMonat(fixAktiv());
     const saldo = parseFloat(String(zustand.einst.clerSaldo || (zustand.quelle?.beispiel ? "2400" : "")).replace(/['’\s]/g, "").replace(",", "."));
     const einzahlungEingabe = parseFloat(String(zustand.einst.clerEinzahlung).replace(/['’\s]/g, "").replace(",", "."));
     const einzahlung = isFinite(einzahlungEingabe) ? einzahlungEingabe : bedarf;
@@ -1317,7 +1361,7 @@
     let html = `<p class="cler-bedarf">Nötige Einzahlung: <strong>${Format.chf(bedarf)}</strong> pro Monat
       <span>(alle Posten «Über Cler», auf 12 Monate verteilt)</span></p>`;
     if (isFinite(saldo)) {
-      const verlauf = A.clerPrognose(zustand.fixkosten, saldo, einzahlung, heute, 12);
+      const verlauf = A.clerPrognose(fixAktiv(), saldo, einzahlung, heute, 12);
       const tiefst = verlauf.reduce((min, v) => v.saldo < min.saldo ? v : min, verlauf[0]);
       const ok = tiefst.saldo >= 0;
       html += `<div class="cler-status ${ok ? "ok" : "knapp"}">${ok ? ICONS.gut : ICONS.kritisch}
@@ -1534,7 +1578,7 @@
     $("e-cler-saldo").value = zustand.einst.clerSaldo ?? "";
     $("e-cler-ein").value = zustand.einst.clerEinzahlung ?? "";
     $("e-cler-ein").placeholder = zustand.fixkosten.length
-      ? Format.betrag(window.Analyse.clerBedarfProMonat(zustand.fixkosten)) : "";
+      ? Format.betrag(window.Analyse.clerBedarfProMonat(fixAktiv())) : "";
     if (document.activeElement !== $("e-regeln")) $("e-regeln").value = zustand.einst.regeln;
   }
 
@@ -1714,9 +1758,46 @@
     const z = { ...(fixZuordnung[k] || {}) };
     if (sel.dataset.feld === "konto") z.konto = sel.value === orig?.konto ? "" : sel.value;
     else z.bereich = orig && sel.value === window.Analyse.hauptgruppe(orig.gruppe) ? "" : sel.value;
-    if (!z.konto && !z.bereich) delete fixZuordnung[k]; else fixZuordnung[k] = z;
-    speicherSchreiben(SPEICHER_ZUORDNUNG, fixZuordnung);
-    setzeBuchungen(zustand.buchungen, false);   // alles neu rechnen (Fluss, Bereiche, Budget)
+    speichereZuordnung(k, z);   // alles neu rechnen (Fluss, Bereiche, Budget)
+  });
+  // Name/Betrag ändern, Kündigung bestätigen, rückgängig
+  $("ansicht-fixkosten").addEventListener("click", e => {
+    const um = e.target.closest("[data-umbenennen]");
+    if (um) {
+      const k = um.dataset.umbenennen;
+      const f = fixEff().find(x => x.schluessel === k);
+      if (!f) return;
+      const name = prompt(`Neuer Name, z.B. nach Anbieterwechsel\n(leer = Name aus dem Excel: «${f.postenExcel}»)`, f.posten);
+      if (name === null) return;
+      const betragText = prompt(`Betrag pro Rechnung in CHF (${RHYTHMUS_KURZ(f.haeufigkeit)})\n(leer = Betrag aus dem Excel: ${Format.betrag(f.betragExcel)})`,
+        f.betrag !== f.betragExcel ? String(f.betrag) : "");
+      if (betragText === null) return;
+      const z = { ...(fixZuordnung[k] || {}) };
+      z.name = name.trim() && name.trim() !== f.postenExcel ? name.trim() : "";
+      const b = window.Analyse.zuBetrag(betragText);
+      z.betrag = b != null && Math.abs(b) !== f.betragExcel ? Math.abs(b) : null;
+      speichereZuordnung(k, z);
+      return;
+    }
+    const ok = e.target.closest("[data-bestaetigen]");
+    if (ok) {
+      const k = ok.dataset.bestaetigen;
+      const ab = ok.closest(".fx-bestaetigen").querySelector("[data-ab]").value || naechsterMonat();
+      const f = fixEff().find(x => x.schluessel === k);
+      if (!confirm(`«${f ? f.posten : k}» als gekündigt speichern?\nAb ${Format.monat(ab)} zählt der Posten nicht mehr zu den Fixkosten.`)) return;
+      delete fixMarken[ok.dataset.markeKey];
+      speicherSchreiben(SPEICHER_FIXMARKEN, fixMarken);
+      speichereZuordnung(k, { ...(fixZuordnung[k] || {}), gekuendigtAb: ab });
+      melde(`✓ «${f ? f.posten : k}» ist ab ${Format.monat(ab)} gekündigt.`);
+      return;
+    }
+    const rg = e.target.closest("[data-rueckgaengig]");
+    if (rg) {
+      const k = rg.dataset.rueckgaengig;
+      const z = { ...(fixZuordnung[k] || {}) };
+      delete z.gekuendigtAb;
+      speichereZuordnung(k, z);
+    }
   });
   $("fx-alle").addEventListener("click", () => { zustand.fxAlle = !zustand.fxAlle; fixkostenAnsicht(); });
   $("v-erfassen").addEventListener("click", oeffneErfassung);
