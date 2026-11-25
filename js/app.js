@@ -263,6 +263,7 @@
     monatsauswahl();
     kontoFilterAnzeigen();
     vermoegenKarten();
+    if (zustand.ansicht === "fixkosten") fixkostenAnsicht();
     kacheln();
     fluss();
     gruppen();
@@ -967,16 +968,155 @@
       && !(zustand.vmLokal.pikett || []).length;
   }
 
+  // ---------- Ansicht «Fixkosten» ----------
+
+  const SPEICHER_FIXMARKEN = "finanzDashboard.fixMarken.v1";
+  const fixMarken = speicherLesen(SPEICHER_FIXMARKEN) || {};
+  const fixSchluessel = f => `${f.posten}|${f.gruppe}|${f.konto}`;
+  const RHYTHMUS_KURZ = h => h >= 12 ? "monatlich" : h === 4 ? "vierteljährlich" : h === 2 ? "halbjährlich" : h === 1 ? "jährlich" : h < 1 ? `alle ${Math.round(1 / h)} Jahre` : `${h}× pro Jahr`;
+
+  // Durchschnitt der letzten 3 abgeschlossenen Monate (Basis für Anteil am Einkommen und Sparquote)
+  function basisMonate() {
+    const d = zustand.daten;
+    if (!d) return null;
+    const jetzt = new Date().toISOString().slice(0, 7);
+    let m = d.monate.filter(x => x < jetzt);
+    if (!m.length) m = d.monate;
+    m = m.slice(-3);
+    const s = m.reduce((a, x) => ({ ein: a.ein + d.proMonat[x].einnahmen, aus: a.aus + d.proMonat[x].ausgaben }), { ein: 0, aus: 0 });
+    return { monate: m, einnahmen: s.ein / m.length, ausgaben: s.aus / m.length };
+  }
+
+  function fixkostenAnsicht() {
+    const A = window.Analyse;
+    const opt = fixOptionen();
+    const nicht = String(zustand.einst.umbuchungen || "").split(",").map(w => w.trim().toLowerCase()).filter(Boolean);
+    const alle = zustand.fixkosten || [];
+    // Haushalts-Fixkosten: echte Ausgaben, ohne «nicht mitzählen» (z.B. Geschäftliches)
+    const posten = alle.filter(f => A.fixArtGenau(f, opt) === "ausgabe" && !nicht.includes(String(f.gruppe).toLowerCase()))
+      .map(f => ({ ...f, jahr: f.betrag * f.haeufigkeit, marke: fixMarken[fixSchluessel(f)] || "" }))
+      .sort((a, b) => b.jahr - a.jahr);
+    const leer = !posten.length;
+    $("fx-leer").hidden = !leer;
+    for (const el of $("ansicht-fixkosten").querySelectorAll("article:not(#fx-leer)")) el.hidden = leer;
+    if (leer) return;
+
+    const proMonat = posten.reduce((s, f) => s + f.proMonat, 0);
+    const basis = basisMonate();
+    $("fx-monat").textContent = Format.chf(proMonat);
+    $("fx-jahr").textContent = `= ${Format.chf(proMonat * 12)} pro Jahr · ${posten.length} Posten`;
+    const weitere = [];
+    let sparen = 0, ruecklagen = 0, geschaeft = 0;
+    for (const f of alle) {
+      const art = A.fixArtGenau(f, opt);
+      if (art === "sparen") sparen += f.proMonat;
+      else if (art === "ruecklage") ruecklagen += f.proMonat;
+      else if (art === "ausgabe" && nicht.includes(String(f.gruppe).toLowerCase())) geschaeft += f.proMonat;
+    }
+    if (sparen) weitere.push(`Sparen ${Format.chf(sparen)}`);
+    if (ruecklagen) weitere.push(`Rücklagen ${Format.chf(ruecklagen)}`);
+    if (geschaeft) weitere.push(`nicht mitgezählt (z.B. Geschäftliches) ${Format.chf(geschaeft)}`);
+    $("fx-ausserdem").textContent = weitere.length ? `Nicht enthalten, pro Monat: ${weitere.join(" · ")}` : "";
+
+    // Anteil am Einkommen
+    if (basis && basis.einnahmen > 0) {
+      const anteil = proMonat / basis.einnahmen;
+      $("fx-anteil").innerHTML = `<div class="ring" data-anteil="${Math.min(100, anteil * 100).toFixed(1)}"><span>${Math.round(anteil * 100)} %</span></div>
+        <p>deines Einkommens<br><small>Ø ${basis.monate.length} ${basis.monate.length === 1 ? "Monat" : "Monate"}: ${Format.chf(basis.einnahmen)}</small></p>`;
+      const ring = $("fx-anteil").querySelector(".ring");
+      ring.style.setProperty("--anteil", `${ring.dataset.anteil}%`);
+    } else $("fx-anteil").innerHTML = "";
+
+    // Sparpotenzial aus den Markierungen
+    const kuendigen = posten.filter(f => f.marke === "kuendigen");
+    const pruefen = posten.filter(f => f.marke === "pruefen");
+    const sumJahr = l => l.reduce((s, f) => s + f.jahr, 0);
+    if (kuendigen.length || pruefen.length) {
+      const plus = sumJahr(kuendigen);
+      let quote = "";
+      if (basis && basis.einnahmen > 0) {
+        const alt = (basis.einnahmen - basis.ausgaben) / basis.einnahmen;
+        const neu = (basis.einnahmen - basis.ausgaben + plus / 12) / basis.einnahmen;
+        quote = ` · Sparquote <strong>${Format.prozent(alt)} → ${Format.prozent(neu)}</strong>`;
+      }
+      $("fx-potenzial").innerHTML = `
+        ${kuendigen.length ? `<div class="fx-pot gut">${ICONS.gut}<div><strong>Wenn du ${kuendigen.length} ${kuendigen.length === 1 ? "Posten kündigst" : "Posten kündigst"}: + ${Format.chf(plus)} pro Jahr</strong>
+          <span>= ${Format.chf(plus / 12)} pro Monat${quote}</span></div></div>` : ""}
+        ${pruefen.length ? `<div class="fx-pot">${ICONS.info}<div><strong>${pruefen.length} ${pruefen.length === 1 ? "Posten" : "Posten"} zum Prüfen: ${Format.chf(sumJahr(pruefen))} pro Jahr</strong>
+          <span>${pruefen.slice(0, 4).map(f => esc(f.posten)).join(", ")}${pruefen.length > 4 ? " …" : ""}</span></div></div>` : ""}`;
+    } else {
+      $("fx-potenzial").innerHTML = '<p class="hinweis">Tipp: Markiere unten Posten mit «Prüfen» oder «Kündigen», dann siehst du hier dein Sparpotenzial.</p>';
+    }
+
+    // Nach Gruppe (pro Jahr)
+    const gruppen = {};
+    for (const f of posten) gruppen[f.gruppe] = (gruppen[f.gruppe] || 0) + f.jahr;
+    const gl = Object.entries(gruppen).sort((a, b) => b[1] - a[1]);
+    balkenliste($("fx-gruppen"), gl, sumJahr(posten) || 1, g => ` · ${Format.chf(gruppen[g] / 12)}/Monat`);
+    for (const d of $("fx-gruppen").querySelectorAll(".detail")) d.innerHTML = d.innerHTML.replace("der Ausgaben", "der Fixkosten");
+
+    // Kleine Posten
+    const abos = posten.filter(f => /abo|telefon|streaming|internet|handy/i.test(`${f.gruppe} ${f.posten}`));
+    const klein = posten.filter(f => f.proMonat < 30);
+    $("fx-klein").innerHTML = `
+      ${abos.length ? `<div class="fx-zahl"><strong>${abos.length} Abos & Telefon</strong><span>${Format.chf(sumJahr(abos))} pro Jahr</span></div>` : ""}
+      <div class="fx-zahl"><strong>${klein.length} Posten unter CHF 30/Monat</strong><span>zusammen ${Format.chf(sumJahr(klein))} pro Jahr</span></div>
+      <ul class="kurzliste">${klein.sort((a, b) => b.jahr - a.jahr).slice(0, 8).map(f => `<li><span>${esc(f.posten)}</span><span>${Format.chf(f.jahr)}/Jahr</span></li>`).join("")}</ul>
+      <p class="hinweis">Einzeln klein – zusammen oft ein schöner Betrag.</p>`;
+
+    // Posten-Liste
+    const zeigeAlle = zustand.fxAlle;
+    const liste = zeigeAlle ? posten : posten.slice(0, 10);
+    const maxJ = posten[0].jahr || 1;
+    $("fx-posten").innerHTML = liste.map(f => `
+      <li class="${f.marke}">
+        <div class="fx-kopf">
+          <span class="fx-name">${esc(f.posten)}</span>
+          <span class="fx-betrag">${Format.chf(f.jahr)}<small>/Jahr</small></span>
+        </div>
+        <div class="spur" aria-hidden="true"><div class="fuellung" data-breite="${Math.max(1, f.jahr / maxJ * 100).toFixed(1)}"></div></div>
+        <div class="fx-fuss">
+          <span class="detail">${esc(f.gruppe)} · ${RHYTHMUS_KURZ(f.haeufigkeit)} ${Format.chf(f.betrag)} · ${esc(f.konto)}${f.ueberCler ? ' · <em class="marke">Cler</em>' : ""}</span>
+          <span class="umschalter klein fx-marke" role="group" aria-label="Markierung für ${esc(f.posten)}">
+            <button type="button" data-fx="${esc(fixSchluessel(f))}" data-marke="pruefen" aria-pressed="${f.marke === "pruefen"}">Prüfen</button>
+            <button type="button" data-fx="${esc(fixSchluessel(f))}" data-marke="kuendigen" aria-pressed="${f.marke === "kuendigen"}">Kündigen</button>
+          </span>
+        </div>
+      </li>`).join("");
+    for (const el of $("fx-posten").querySelectorAll("[data-breite]")) el.style.width = `${el.dataset.breite}%`;
+    $("fx-alle").hidden = posten.length <= 10;
+    $("fx-alle").textContent = zeigeAlle ? "Nur die 10 teuersten zeigen" : `Alle ${posten.length} Posten anzeigen`;
+
+    // Kalender 12 Monate
+    const heute = new Date().toISOString().slice(0, 7);
+    const kal = A.faelligkeiten(alle.filter(f => !nicht.includes(String(f.gruppe).toLowerCase())), heute, 12, opt);
+    const maxK = Math.max(1, ...kal.map(k => k.summe));
+    $("fx-kalender").innerHTML = kal.map(k => `
+      <li>
+        <span class="fx-k-monat">${Format.monatKurz(k.monat)}</span>
+        <span class="fx-k-spur"><span class="fx-k-balken" data-breite="${(k.summe / maxK * 100).toFixed(1)}"></span></span>
+        <span class="fx-k-betrag">${k.summe ? Format.chf(k.summe) : "–"}</span>
+        <span class="fx-k-posten">${k.posten.map(p => `${esc(p.posten)}${p.ueberCler ? " (Cler)" : ""}`).join(", ")}</span>
+      </li>`).join("");
+    for (const el of $("fx-kalender").querySelectorAll("[data-breite]")) el.style.width = `${el.dataset.breite}%`;
+    const ohne = posten.filter(f => f.haeufigkeit < 12 && !f.faellig.length);
+    $("fx-kalender-fuss").textContent = ohne.length
+      ? `Ohne Fälligkeit (im Excel bei «Fällig» ergänzen): ${ohne.map(f => f.posten).join(", ")}.` : "";
+  }
+
   // ---------- Ansicht wechseln ----------
 
   function zeigeAnsicht(name) {
     zustand.ansicht = name;
     $("ansicht-uebersicht").hidden = name !== "uebersicht";
     $("ansicht-vermoegen").hidden = name !== "vermoegen";
+    $("ansicht-fixkosten").hidden = name !== "fixkosten";
     $("monatswahl").hidden = name !== "uebersicht";
     setzeUmschalter("ansicht", "data-ansicht", name);
     try { sessionStorage.setItem("finanzDashboard.ansicht", name); } catch { /* egal */ }
-    if (name === "vermoegen") vermoegenAnsicht(); else zeichneDiagramme();
+    if (name === "vermoegen") vermoegenAnsicht();
+    else if (name === "fixkosten") fixkostenAnsicht();
+    else zeichneDiagramme();
     window.scrollTo({ top: 0 });
   }
 
@@ -1457,6 +1597,16 @@
       });
     }
   });
+  $("fx-posten").addEventListener("click", e => {
+    const b = e.target.closest("[data-fx]");
+    if (!b) return;
+    const k = b.dataset.fx;
+    fixMarken[k] = fixMarken[k] === b.dataset.marke ? "" : b.dataset.marke;
+    if (!fixMarken[k]) delete fixMarken[k];
+    speicherSchreiben(SPEICHER_FIXMARKEN, fixMarken);
+    fixkostenAnsicht();
+  });
+  $("fx-alle").addEventListener("click", () => { zustand.fxAlle = !zustand.fxAlle; fixkostenAnsicht(); });
   $("v-erfassen").addEventListener("click", oeffneErfassung);
   $("v-import").addEventListener("click", () => {
     if (zustand.quelle?.beispiel) { melde("Bei den Beispieldaten kann nichts eingefügt werden.", true); return; } $("imp-meldung").hidden = true; $("dlg-import").showModal(); });

@@ -18,6 +18,15 @@ Eine Seite, die man von oben nach unten liest. Jede Karte beantwortet eine Frage
 
 Unter **«Mehr Details»** (zugeklappt) findest du die Monatsverläufe, die Sparquote, die Fixkosten nach Gruppe, den Cler-Topf, die Kennzahlen aus dem Sheet und alle Buchungen.
 
+## Fixkosten – dein grösster Hebel
+
+Oben im Reiter **«Fixkosten»** (braucht dein Finanz-Excel mit dem Blatt «Fixkosten») siehst du:
+- **Fixkosten pro Monat und pro Jahr** und welchen **Anteil deines Einkommens** sie ausmachen (Durchschnitt der letzten 3 Monate). Sparen, Rücklagen und «nicht mitzählen» (z.B. Geschäftliches) sind separat ausgewiesen.
+- die Aufteilung **nach Gruppe**
+- **Kleine Posten:** wie viel alle Abos und alle Posten unter CHF 30 im Monat zusammen pro Jahr kosten
+- **alle Posten, die teuersten zuerst**, pro Jahr gerechnet. Bei jedem Posten kannst du **«Prüfen»** oder **«Kündigen»** antippen. Oben siehst du dann sofort: *«Wenn du 2 Posten kündigst: + CHF … pro Jahr, Sparquote … → …»*. Die Markierungen bleiben nur auf deinem Gerät.
+- **Kalender** der nächsten 12 Monate: wann welche Jahres- und Quartalsrechnungen kommen. Dazu ein Hinweis, welche Posten noch keine Fälligkeit haben.
+
 ## Vermögen erfassen (jeden Monat am 30.)
 
 Oben schaltest du zwischen **«Übersicht»** und **«Vermögen»** um.

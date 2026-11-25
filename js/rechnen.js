@@ -969,7 +969,7 @@
 
   window.Analyse = {
     buchungenAusTabelle, ausArbeitsmappe, zuordnen, berechne, zeitraum, durchschnittVorher, warnungen,
-    fixBuchungen, fixUebersicht, faelligkeiten, vermoegenBerechnen, ARTEN,
+    fixBuchungen, fixUebersicht, fixArtGenau, faelligkeiten, vermoegenBerechnen, ARTEN,
     vermoegenZusammenfuehren, vermoegenEintrag, vermoegenAusText, vmSchluessel,
     nachHauptgruppe, HAUPTGRUPPEN_NAMEN, clerBedarfProMonat, clerPrognose, monatVon, naechsterMonat,
     STANDARD_REGELN,
