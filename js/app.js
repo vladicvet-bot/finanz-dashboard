@@ -17,7 +17,7 @@
   const Format = {
     chf: v => (v < 0 ? "−" : "") + chfFormat.format(Math.abs(v)),
     zahl: v => zahlFormat.format(v),
-    betrag: v => betragFormat.format(v), // ohne "CHF", für die Tabelle
+    betrag: v => (v < 0 ? "−" : "") + betragFormat.format(Math.abs(v)), // ohne "CHF", für die Tabelle
     prozent: v => `${v < 0 ? "−" : ""}${Math.abs(v * 100).toFixed(1).replace(".0", "")} %`,
     datum: iso => `${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(0, 4)}`,
     monat: m => monatLang.format(new Date(`${m}-01T00:00:00Z`)),
@@ -58,6 +58,8 @@
     budgetsKonto: {},      // Budget pro Topf (Konto) aus dem Blatt «Übersicht»
     kennzahlen: null,      // Kennzahlen aus dem Blatt «Übersicht»
     vermoegen: [],         // Stände aus dem Blatt «Vermögen»
+    vmLokal: { eintraege: [], pikett: [], konten: [], ...(speicherLesen("finanzDashboard.vermoegenLokal.v1") || {}) },
+    ansicht: "uebersicht",
     kontoFilter: "alle",   // "alle" oder ein Kontoname
     monat: null,           // ausgewählter Monat "JJJJ-MM"
     zeitraum: "12",        // "12" oder "alle"
@@ -178,7 +180,7 @@
     zustand.einst.budgetsKonto = zustand.budgetsKonto;
 
     // Monate: von der ersten Buchung bis heute (bzw. letzte Buchung)
-    const daten = buchungen.map(b => b.datum).sort();
+    const daten = buchungen.map(b => b.datum).concat(zustand.vmLokal.pikett.map(p => p.datum)).sort();
     const heute = new Date().toISOString().slice(0, 7);
     let von = daten.length ? A.monatVon(daten[0]) : heute;
     let bis = daten.length ? A.monatVon(daten[daten.length - 1]) : heute;
@@ -192,7 +194,7 @@
     const topfSicht = zustand.kontoFilter !== "alle";
 
     const fix = A.fixBuchungen(zustand.fixkosten, monate, { ...fixOptionen(), topfSicht });
-    let alle = buchungen.concat(fix);
+    let alle = buchungen.concat(pikettBuchungen(buchungen), fix);
     A.zuordnen(alle, zustand.einst.regeln);
     if (topfSicht) alle = alle.filter(b => b.konto === zustand.kontoFilter);
     if (!alle.length) alle = buchungen.concat(fix);
@@ -541,40 +543,108 @@
 
   // ---------- Vermögen ----------
 
+  const ART_FARBE = { Konto: "s1", "Rücklage": "s3", Vorsorge: "s7", Investment: "s2", Kinder: "s5", Schulden: "s8", Andere: "grau-fest" };
+  const ART_PLURAL = { Konto: "Konten", Investment: "Investments" };
+
+  // Alle Vermögens-Erfassungen: aus dem Sheet + lokal erfasste (ohne Doppelte)
+  function alleVermoegen() {
+    if (zustand.quelle?.beispiel) return zustand.vermoegen || [];   // Beispiel nie mit echten Daten mischen
+    return window.Analyse.vermoegenZusammenfuehren(zustand.vermoegen || [], zustand.vmLokal.eintraege);
+  }
+
+  // Karte «Vermögen total» in der Übersicht (bezogen auf den gewählten Monat)
   function vermoegenKarten() {
-    const A = window.Analyse;
-    const V = A.vermoegenBerechnen(zustand.vermoegen || []);
+    const V = window.Analyse.vermoegenBerechnen(alleVermoegen());
     const leer = !V.monate.length;
     $("vm-leer").hidden = !leer;
     $("vm-diagramm").hidden = leer;
-    $("karte-verteilung").hidden = leer;
     if (leer) {
       $("vm-total").textContent = "–";
       $("vm-delta").textContent = "";
       $("vm-stand").textContent = "";
-      $("karte-invest").hidden = true;
       if (diagramme["chart-vermoegen"]) { diagramme["chart-vermoegen"].destroy(); delete diagramme["chart-vermoegen"]; }
+      vermoegenAnsicht();
       return;
     }
-    // Monat: der gewählte, sonst der letzte davor mit Vermögensdaten
-    const passend = V.monate.filter(m => m <= zustand.monat);
+    const passend = zustand.monat ? V.monate.filter(m => m <= zustand.monat) : V.monate;
     const m = passend.length ? passend[passend.length - 1] : V.monate[0];
     const vm = V.proMonat[m];
     const i = V.monate.indexOf(m);
     const vor = i > 0 ? V.proMonat[V.monate[i - 1]] : null;
 
-    $("vm-total").textContent = Format.chf(vm.netto);
-    let delta = "";
-    if (vor) {
-      const diff = vm.netto - vor.netto;
-      delta = `<span class="${diff >= 0 ? "besser" : "schlechter"}">${diff >= 0 ? "▲ +" : "▼ −"}${Format.chf(Math.abs(diff))}</span> seit Vormonat`;
-      const pm = zustand.daten.proMonat[m];
-      if (pm && pm.einnahmen) delta += ` · laut Budget gespart ${Format.chf(pm.einnahmen - pm.ausgaben + pm.sparen)}`;
-    }
+    $("vm-total").textContent = Format.chf(vm.total);
+    let delta = vor ? deltaText(vm) : "";
+    if (vm.kinder) delta += `${delta ? " · " : ""}ohne Kinder ${Format.chf(vm.ohneKinder)}`;
     $("vm-delta").innerHTML = delta;
     $("vm-stand").textContent = vm.stichtag ? `Stand ${Format.datum(vm.stichtag)}` : `Stand ${Format.monat(m)}`;
 
-    // Verteilung nach Art
+    const bis = V.monate.indexOf(m);
+    const bereich = V.monate.slice(Math.max(0, bis - 11), bis + 1);
+    if (window.Chart) {
+      const s1 = farbe("s1");
+      const opt = grundOptionen();
+      opt.scales.y.ticks.callback = v => Format.zahl(v);
+      opt.scales.y.beginAtZero = false;
+      opt.plugins.tooltip.callbacks = {
+        title: items => Format.monat(bereich[items[0].dataIndex]),
+        label: c => ` Vermögen total: ${Format.chf(c.raw)}`,
+      };
+      neu("chart-vermoegen", {
+        type: "bar",
+        data: {
+          labels: bereich.map(Format.monatKurz),
+          datasets: [{
+            label: "Vermögen total", data: bereich.map(x => V.proMonat[x].total),
+            backgroundColor: bereich.map((x, j) => j === bereich.length - 1 ? s1 : transparent(s1, 0.4)),
+            borderRadius: 4, borderSkipped: "bottom", maxBarThickness: 36,
+          }],
+        },
+        options: opt,
+      });
+    }
+    vermoegenAnsicht();
+  }
+
+  // Veränderung zum Vormonat – nur über Konten, die in beiden Monaten vorkommen
+  function deltaText(vm) {
+    if (!vm || vm.veraenderung == null) return vm && vm.neueKonten ? `${vm.neueKonten} ${vm.neueKonten === 1 ? "Konto" : "Konten"} neu erfasst` : "";
+    const diff = vm.veraenderung;
+    let t = `<span class="${diff >= 0 ? "besser" : "schlechter"}">${diff >= 0 ? "▲ +" : "▼ −"}${Format.chf(Math.abs(diff))}</span> seit Vormonat`;
+    if (vm.neueKonten) t += ` <span class="leise">(${vm.neueKonten} ${vm.neueKonten === 1 ? "Konto" : "Konten"} neu erfasst, nicht mitgerechnet)</span>`;
+    return t;
+  }
+
+  // Ansicht «Vermögen» (immer der neuste Stichtag)
+  function vermoegenAnsicht() {
+    const A = window.Analyse;
+    const V = A.vermoegenBerechnen(alleVermoegen());
+    const leer = !V.monate.length;
+    $("v-leer").hidden = !leer;
+    for (const id of ["karte-verteilung", "karte-invest"]) $(id).hidden = leer;
+    $("karte-pikett").hidden = zustand.quelle?.beispiel || !zustand.vmLokal.pikett.length;
+    kopierKnopfText();
+    pikettListe();
+    if (leer) {
+      $("v-total").textContent = "–";
+      for (const id of ["v-delta", "v-teile", "v-stichtag", "v-konten-stand"]) $(id).textContent = "";
+      $("v-uebernommen").hidden = true;
+      $("v-konten").innerHTML = "";
+      if (diagramme["chart-v-verlauf"]) { diagramme["chart-v-verlauf"].destroy(); delete diagramme["chart-v-verlauf"]; }
+      return;
+    }
+    const m = V.monate[V.monate.length - 1];
+    const vm = V.proMonat[m];
+    const vor = V.monate.length > 1 ? V.proMonat[V.monate[V.monate.length - 2]] : null;
+
+    $("v-total").textContent = Format.chf(vm.total);
+    $("v-delta").innerHTML = vor ? deltaText(vm) : "";
+    $("v-teile").textContent = vm.kinder ? `ohne Kinder ${Format.chf(vm.ohneKinder)} · davon Kinder ${Format.chf(vm.kinder)}` : "";
+    $("v-stichtag").textContent = `Stichtag ${Format.datum(vm.stichtag || `${m}-30`)}`;
+    $("v-uebernommen").hidden = !vm.uebernommen;
+    $("v-uebernommen").textContent = vm.uebernommen
+      ? `${vm.uebernommen} ${vm.uebernommen === 1 ? "Konto ist" : "Konten sind"} an diesem Stichtag nicht erfasst – fürs Total wird der letzte bekannte Stand verwendet (in der Tabelle markiert).` : "";
+
+    // Summe pro Art (mit den Konten darunter)
     const gruppen = A.ARTEN.map(art => [art, vm.konten.filter(k => k.art === art).sort((a, b) => Math.abs(b.stand) - Math.abs(a.stand))])
       .filter(([, k]) => k.length);
     const maxAbs = Math.max(1, ...vm.konten.map(k => Math.abs(k.stand)));
@@ -582,59 +652,309 @@
     $("verteilung").innerHTML = gruppen.map(([art, konten]) => {
       const summe = konten.reduce((s, k) => s + k.stand, 0);
       return `<div class="gruppe ${art === "Schulden" ? "schulden" : ""} ${art === "Kinder" ? "kinder" : ""}">
-        <div class="gruppe-kopf"><strong>${esc(art === "Konto" ? "Konten" : art === "Investment" ? "Investments" : art)}</strong><span>${Format.chf(summe)}</span></div>
+        <div class="gruppe-kopf"><strong><i class="punkt f-${ART_FARBE[art]}"></i> ${esc(ART_PLURAL[art] || art)}</strong><span>${Format.chf(summe)}</span></div>
         <ul class="balken">${konten.map(k => `<li>
-          <span class="name">${esc(k.konto)}</span><span class="betrag">${Format.chf(k.stand)}</span>
-          <div class="spur" aria-hidden="true"><div class="fuellung" data-breite="${Math.max(1, Math.abs(k.stand) / maxAbs * 100).toFixed(1)}"></div></div>
+          <span class="name">${esc(k.konto)}${k.uebernommen ? ' <em class="marke">alt</em>' : ""}</span><span class="betrag">${Format.chf(k.stand)}</span>
+          <div class="spur" aria-hidden="true"><div class="fuellung f-${ART_FARBE[art]}" data-breite="${Math.max(1, Math.abs(k.stand) / maxAbs * 100).toFixed(1)}"></div></div>
         </li>`).join("")}</ul>
-        ${art === "Kinder" ? '<p class="hinweis">Gehört den Kindern – zählt nicht zum Nettovermögen.</p>' : ""}
       </div>`;
     }).join("");
     for (const f of $("verteilung").querySelectorAll("[data-breite]")) f.style.width = `${f.dataset.breite}%`;
 
-    // Investments & Vorsorge: eingezahlt vs. Wert
-    const inv = vm.konten.filter(k => (k.art === "Investment" || k.art === "Vorsorge") && k.eingezahlt);
+    // Investments & Vorsorge: Gewinn, sobald «Eingezahlt» erfasst ist
+    const inv = vm.konten.filter(k => k.art === "Investment" || k.art === "Vorsorge");
     $("karte-invest").hidden = !inv.length;
-    if (inv.length) {
-      const maxI = Math.max(...inv.map(k => Math.max(k.stand, k.eingezahlt)), 1);
-      $("invest").innerHTML = inv.map(k => {
-        const gewinn = k.stand - k.eingezahlt;
-        const prozent = k.eingezahlt ? gewinn / k.eingezahlt : 0;
-        return `<li>
-          <div class="invest-kopf"><span class="name">${esc(k.konto)}</span>
-            <span class="${gewinn >= 0 ? "besser" : "schlechter"}">${gewinn >= 0 ? "+" : "−"}${Format.chf(Math.abs(gewinn))} (${gewinn >= 0 ? "+" : "−"}${Format.prozent(Math.abs(prozent))})</span></div>
-          <div class="spur duenn"><div class="fuellung grau" data-breite="${(k.eingezahlt / maxI * 100).toFixed(1)}"></div></div>
+    const mitEin = inv.filter(k => k.eingezahlt);
+    const maxI = Math.max(1, ...inv.map(k => Math.max(k.stand, k.eingezahlt || 0)));
+    $("invest").innerHTML = inv.map(k => {
+      if (!k.eingezahlt) {
+        return `<li><div class="invest-kopf"><span class="name">${esc(k.konto)}</span><span>${Format.chf(k.stand)}</span></div>
           <div class="spur duenn"><div class="fuellung" data-breite="${(Math.max(0, k.stand) / maxI * 100).toFixed(1)}"></div></div>
-          <div class="detail">eingezahlt ${Format.chf(k.eingezahlt)} · heute ${Format.chf(k.stand)}</div>
-        </li>`;
-      }).join("");
-      for (const f of $("invest").querySelectorAll("[data-breite]")) f.style.width = `${f.dataset.breite}%`;
-    }
+          <div class="detail">«Eingezahlt» noch nicht erfasst – Gewinn folgt</div></li>`;
+      }
+      const gewinn = k.stand - k.eingezahlt;
+      const prozent = gewinn / k.eingezahlt;
+      return `<li>
+        <div class="invest-kopf"><span class="name">${esc(k.konto)}</span>
+          <span class="${gewinn >= 0 ? "besser" : "schlechter"}">${gewinn >= 0 ? "+" : "−"}${Format.chf(Math.abs(gewinn))} (${gewinn >= 0 ? "+" : "−"}${Format.prozent(Math.abs(prozent))})</span></div>
+        <div class="spur duenn"><div class="fuellung grau" data-breite="${(k.eingezahlt / maxI * 100).toFixed(1)}"></div></div>
+        <div class="spur duenn"><div class="fuellung" data-breite="${(Math.max(0, k.stand) / maxI * 100).toFixed(1)}"></div></div>
+        <div class="detail">eingezahlt ${Format.chf(k.eingezahlt)} · heute ${Format.chf(k.stand)}</div>
+      </li>`;
+    }).join("");
+    for (const f of $("invest").querySelectorAll("[data-breite]")) f.style.width = `${f.dataset.breite}%`;
+    void mitEin;
 
-    // Verlauf Nettovermögen (Balken, letzte 12 Monate bis zum gewählten)
-    const bis = V.monate.indexOf(m);
-    const bereich = V.monate.slice(Math.max(0, bis - 11), bis + 1);
+    // Tabelle pro Konto
+    $("v-konten-stand").textContent = vm.stichtag ? Format.datum(vm.stichtag) : "";
+    const reihenfolge = k => A.ARTEN.indexOf(k.art);
+    $("v-konten").innerHTML = [...vm.konten].sort((a, b) => reihenfolge(a) - reihenfolge(b) || b.stand - a.stand).map(k => `
+      <tr class="${k.uebernommen ? "alt" : ""}">
+        <td>${esc(k.konto)}${k.uebernommen ? `<span class="unterzeile-immer">nicht erfasst – Stand vom ${Format.datum(k.datum)}</span>` : ""}${k.notiz ? `<span class="notiz">${esc(k.notiz)}</span>` : ""}</td>
+        <td><i class="punkt f-${ART_FARBE[k.art]}"></i> ${esc(k.art)}</td>
+        <td class="zahl">${Format.betrag(k.stand)}</td>
+        <td class="zahl">${k.veraenderung == null ? "–" : `<span class="${k.veraenderung >= 0 ? "plus" : "minus"}">${k.veraenderung >= 0 ? "+" : "−"}${Format.betrag(Math.abs(k.veraenderung))}</span>`}</td>
+        <td class="zahl">${k.gewinn == null ? "" : `<span class="${k.gewinn >= 0 ? "plus" : "minus"}">${k.gewinn >= 0 ? "+" : "−"}${Format.betrag(Math.abs(k.gewinn))}</span>`}</td>
+      </tr>`).join("") + `<tr class="summe"><td>Total</td><td></td><td class="zahl">${Format.betrag(vm.total)}</td><td class="zahl">${vm.veraenderung != null ? `${vm.veraenderung >= 0 ? "+" : "−"}${Format.betrag(Math.abs(vm.veraenderung))}` : "–"}</td><td></td></tr>`;
+
+    // Verlauf: gestapelte Balken pro Art + Linie Total (eine Achse, CHF)
     if (!window.Chart) return;
-    const s1 = farbe("s1");
+    const bereich = V.monate.slice(-24);
+    const arten = A.ARTEN.filter(art => bereich.some(x => V.proMonat[x].nachArt[art]));
+    $("v-legende").innerHTML = arten.map(art => `<span><i class="punkt f-${ART_FARBE[art]}"></i>${esc(ART_PLURAL[art] || art)}</span>`).join("")
+      + '<span><i class="linie s-text"></i>Total</span>';
     const opt = grundOptionen();
+    opt.scales.x.stacked = true;
+    opt.scales.y.stacked = true;
     opt.scales.y.ticks.callback = v => Format.zahl(v);
-    opt.scales.y.beginAtZero = false;
+    // Achse nur so weit unter 0, wie die Schulden wirklich reichen
+    const minus = Math.min(0, ...bereich.map(x => Object.values(V.proMonat[x].nachArt).filter(v => v < 0).reduce((s, v) => s + v, 0)));
+    opt.scales.y.min = minus < 0 ? Math.floor(minus * 1.15 / 500) * 500 : 0;
+    opt.scales.y.ticks.maxTicksLimit = 7;
     opt.plugins.tooltip.callbacks = {
       title: items => Format.monat(bereich[items[0].dataIndex]),
-      label: c => ` Nettovermögen: ${Format.chf(c.raw)}`,
+      label: c => c.raw ? ` ${c.dataset.label}: ${Format.chf(c.raw)}` : null,
     };
-    neu("chart-vermoegen", {
+    neu("chart-v-verlauf", {
       type: "bar",
       data: {
         labels: bereich.map(Format.monatKurz),
-        datasets: [{
-          label: "Nettovermögen", data: bereich.map(x => V.proMonat[x].netto),
-          backgroundColor: bereich.map((x, j) => j === bereich.length - 1 ? s1 : transparent(s1, 0.4)),
-          borderRadius: 4, borderSkipped: "bottom", maxBarThickness: 36,
-        }],
+        datasets: [
+          ...arten.map(art => ({
+            label: ART_PLURAL[art] || art, stack: "a",
+            data: bereich.map(x => V.proMonat[x].nachArt[art] || 0),
+            backgroundColor: farbe(ART_FARBE[art]), borderColor: farbe("flaeche"), borderWidth: 1,
+            maxBarThickness: 36, order: 2,
+          })),
+          { type: "line", label: "Total", data: bereich.map(x => V.proMonat[x].total), borderColor: farbe("text"),
+            backgroundColor: farbe("text"), borderWidth: 2, pointRadius: 3, pointBackgroundColor: farbe("text"), tension: 0.2, order: 1 },
+        ],
       },
       options: opt,
     });
+  }
+
+  function pikettListe() {
+    const liste = [...zustand.vmLokal.pikett].sort((a, b) => b.datum.localeCompare(a.datum)).slice(0, 12);
+    $("v-pikett").innerHTML = liste.map(p => `<li><span>${Format.monat(p.datum.slice(0, 7))} · ${p.anzahl ?? "?"} ${p.anzahl === 1 ? "Dienst" : "Dienste"}${p.aufKK ? " · auf KK überwiesen" : " · noch nicht auf KK"}</span><span>${Format.chf(p.betrag)}</span></li>`).join("");
+  }
+
+  // ---------- Erfassung vom 30. ----------
+
+  const ISO = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  // Stichtag: der 30. des laufenden Monats (im Februar der letzte Tag)
+  const STICHTAG_TAG = 30;
+  const stichtagMonat = () => {
+    const h = new Date();
+    const letzter = new Date(h.getFullYear(), h.getMonth() + 1, 0).getDate();
+    return ISO(new Date(h.getFullYear(), h.getMonth(), Math.min(STICHTAG_TAG, letzter)));
+  };
+
+  // Kontenliste fürs Formular: alle bekannten Konten (aus Sheet + lokal + selbst hinzugefügt), nach Art sortiert
+  function bekannteKonten() {
+    const A = window.Analyse;
+    const karte = new Map();
+    for (const e of [...alleVermoegen()].sort((a, b) => a.datum.localeCompare(b.datum))) karte.set(e.konto, e.art);
+    for (const k of zustand.vmLokal.konten) if (!karte.has(k.konto)) karte.set(k.konto, k.art);
+    return [...karte.entries()].map(([konto, art]) => ({ konto, art }))
+      .sort((a, b) => A.ARTEN.indexOf(a.art) - A.ARTEN.indexOf(b.art));
+  }
+
+  function erfassungZeile(k) {
+    const mitEin = k.art === "Vorsorge" || k.art === "Investment";
+    return `<div class="erf-zeile" data-konto="${esc(k.konto)}" data-art="${esc(k.art)}">
+      <div class="erf-name"><i class="punkt f-${ART_FARBE[k.art] || "grau-fest"}"></i><span>${esc(k.konto)}</span><small>${esc(k.art)}</small></div>
+      <label><span>Stand CHF</span><input type="text" inputmode="decimal" class="erf-stand" placeholder="–" autocomplete="off"></label>
+      ${mitEin ? '<label><span>Eingezahlt CHF</span><input type="text" inputmode="decimal" class="erf-ein" placeholder="optional" autocomplete="off"></label>' : ''}
+      <label class="erf-notiz"><span>Notiz</span><input type="text" class="erf-notiz-feld" placeholder="optional" autocomplete="off"></label>
+    </div>`;
+  }
+
+  function oeffneErfassung() {
+    if (zustand.quelle?.beispiel) {
+      melde("Bei den Beispieldaten kann nichts erfasst werden. Lade zuerst dein Sheet oder tippe auf der Startseite auf «Nur Vermögen erfassen».", true);
+      return;
+    }
+    $("erf-datum").value = stichtagMonat();
+    const konten = bekannteKonten();
+    $("erf-liste").innerHTML = konten.length ? konten.map(erfassungZeile).join("")
+      : '<p class="klein-hinweis">Noch keine Konten bekannt. Füge zuerst deine Startdaten ein («Daten einfügen») oder lade dein Sheet – oder lege unten Konten an.</p>';
+    for (const id of ["erf-p-anzahl", "erf-p-betrag"]) $(id).value = "";
+    $("erf-p-kk").checked = false;
+    $("erf-meldung").hidden = true;
+    $("dlg-erfassung").showModal();
+  }
+
+  function speichereErfassung() {
+    const A = window.Analyse;
+    const datum = $("erf-datum").value;
+    if (!datum) return;
+    const vorhanden = new Set(alleVermoegen().map(A.vmSchluessel));
+    const neu = [], uebersprungen = [], fehler = [];
+    for (const z of $("erf-liste").querySelectorAll(".erf-zeile")) {
+      const stand = z.querySelector(".erf-stand").value.trim();
+      if (!stand) continue;                                  // leer = nicht erfasst
+      const e = A.vermoegenEintrag({
+        datum, konto: z.dataset.konto, art: z.dataset.art, stand,
+        eingezahlt: z.querySelector(".erf-ein")?.value.trim() || "",
+        notiz: z.querySelector(".erf-notiz-feld").value,
+      });
+      if (!e) { fehler.push(z.dataset.konto); continue; }
+      if (vorhanden.has(A.vmSchluessel(e))) { uebersprungen.push(e.konto); continue; }  // nie überschreiben
+      neu.push(e);
+    }
+    if (fehler.length) {
+      $("erf-meldung").textContent = `Bitte prüfen (keine gültige Zahl): ${fehler.join(", ")}`;
+      $("erf-meldung").hidden = false;
+      return;
+    }
+    // Pikett
+    let pikett = null;
+    const betrag = A.zuBetrag($("erf-p-betrag").value);
+    const anzahl = $("erf-p-anzahl").value === "" ? null : Number($("erf-p-anzahl").value);
+    if (betrag || anzahl) {
+      const schon = zustand.vmLokal.pikett.some(p => p.datum.slice(0, 7) === datum.slice(0, 7));
+      if (schon) uebersprungen.push("Pikett (für diesen Monat schon erfasst)");
+      else pikett = { datum, anzahl, betrag: Math.abs(betrag || 0), aufKK: $("erf-p-kk").checked };
+    }
+    if (!neu.length && !pikett) {
+      $("erf-meldung").textContent = uebersprungen.length
+        ? `Nichts Neues gespeichert – für diesen Stichtag gibt es schon Werte: ${uebersprungen.join(", ")}.`
+        : "Es wurde nichts eingetragen.";
+      $("erf-meldung").hidden = false;
+      return;
+    }
+    zustand.vmLokal.eintraege.push(...neu);
+    if (pikett) zustand.vmLokal.pikett.push(pikett);
+    speichereVmLokal();
+    const text = vermoegenTSV(neu);
+    const kopiert = neu.length && navigator.clipboard && window.isSecureContext
+      ? navigator.clipboard.writeText(text).then(() => true, () => false) : Promise.resolve(false);
+    $("dlg-erfassung").close();
+    nachVermoegenAenderung();
+    const info = `${neu.length} ${neu.length === 1 ? "Wert" : "Werte"} gespeichert${pikett ? " + Pikett" : ""}.` +
+      (uebersprungen.length ? ` Nicht überschrieben: ${uebersprungen.join(", ")}.` : "");
+    kopiert.then(ok => {
+      if (ok) markiereKopiert(neu);
+      zeigeKopieren(neu, pikett ? [pikett] : [], info, ok);
+    });
+  }
+
+  // ---------- Daten einfügen ----------
+
+  function importiereText() {
+    const A = window.Analyse;
+    const r = A.vermoegenAusText($("imp-text").value);
+    const vorhanden = new Set(alleVermoegen().map(A.vmSchluessel));
+    const neu = r.eintraege.filter(e => !vorhanden.has(A.vmSchluessel(e)) && (vorhanden.add(A.vmSchluessel(e)), true));
+    const doppelt = r.eintraege.length - neu.length;
+    if (!neu.length) {
+      $("imp-meldung").textContent = r.eintraege.length ? `Alle ${doppelt} Zeilen sind schon vorhanden – nichts überschrieben.`
+        : "Keine gültigen Zeilen gefunden. Erwartet: Stichtag · Konto / Anlage · Art · Stand CHF · Eingezahlt CHF · Notiz";
+      $("imp-meldung").hidden = false;
+      return;
+    }
+    zustand.vmLokal.eintraege.push(...neu);
+    speichereVmLokal();
+    $("dlg-import").close();
+    $("imp-text").value = "";
+    nachVermoegenAenderung();
+    const teile = [`${neu.length} Vermögenswerte eingefügt.`];
+    if (doppelt) teile.push(`${doppelt} schon vorhanden (nicht überschrieben).`);
+    if (r.fehler.length) teile.push(`Zeilen ignoriert (unlesbar): ${r.fehler.join(", ")}.`);
+    melde(teile.join(" "));
+  }
+
+  // ---------- Für Excel kopieren ----------
+
+  const zahlSheet = v => v == null ? "" : (Math.round(v * 100) / 100).toFixed(2);
+  function vermoegenTSV(liste) {
+    return liste.map(e => [Format.datum(e.datum), e.konto, e.art, zahlSheet(e.stand), zahlSheet(e.eingezahlt), e.notiz || ""].join("\t")).join("\n");
+  }
+  function pikettTSV(liste) {
+    return liste.map(p => [Format.datum(p.datum), "Pikett-Entschädigung", "Pikett", zahlSheet(p.betrag), "Privat",
+      `${p.anzahl ?? "?"} Dienste · auf Kreditkarte überwiesen: ${p.aufKK ? "ja" : "nein"}`].join("\t")).join("\n");
+  }
+  // Noch nicht ins Excel kopierte Erfassungen (was schon im geladenen Excel steht, zählt als kopiert)
+  function offeneErfassungen() {
+    const A = window.Analyse;
+    const imExcel = new Set((zustand.vermoegen || []).map(A.vmSchluessel));
+    const pikettImExcel = m => zustand.buchungen.some(b => b.quelle === "sheet" && b.einnahme && /pikett/i.test(b.kategorieDatei) && b.datum.slice(0, 7) === m);
+    return {
+      eintraege: zustand.vmLokal.eintraege.filter(e => !e.kopiert && !imExcel.has(A.vmSchluessel(e))).sort((a, b) => a.datum.localeCompare(b.datum)),
+      pikett: zustand.vmLokal.pikett.filter(p => !p.kopiert && !pikettImExcel(p.datum.slice(0, 7))).sort((a, b) => a.datum.localeCompare(b.datum)),
+    };
+  }
+
+  function kopierKnopfText() {
+    const o = offeneErfassungen();
+    const n = o.eintraege.length + o.pikett.length;
+    $("v-kopieren-alle").textContent = n ? `Für Excel kopieren (${n} neu)` : "Für Excel kopieren";
+    $("v-kopieren-alle").classList.toggle("knopf-hinweis", n > 0);
+  }
+
+  function markiereKopiert(liste) {
+    for (const e of liste) e.kopiert = true;
+    speichereVmLokal();
+    kopierKnopfText();
+  }
+
+  // Text in die Zwischenablage (mit Rückfall für ältere Browser)
+  function inZwischenablage(text, feld) {
+    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text).then(() => true, () => false);
+    try { feld.select(); return Promise.resolve(document.execCommand("copy")); } catch { return Promise.resolve(false); }
+  }
+
+  function zeigeKopieren(eintraege, pikett, info, autoKopiert = false) {
+    zustand.kopierListe = { eintraege, pikett };
+    $("kop-info").textContent = `${info ? `${info} ` : ""}${autoKopiert
+      ? "✓ Die Vermögenszeilen sind schon kopiert – öffne dein Excel, Blatt «Vermögen», tippe in Spalte A auf die erste leere Zeile und füge ein."
+      : "Kopieren und im Excel in die erste leere Zeile (Spalte A) einfügen."}`;
+    $("kop-vermoegen").value = vermoegenTSV(eintraege);
+    $("kop-pikett").value = pikettTSV(pikett);
+    $("kop-pikett-block").hidden = !pikett.length;
+    $("kop-vermoegen").closest("form").querySelector('[data-kopiere="kop-vermoegen"]').textContent = autoKopiert ? "Kopiert ✓ (nochmals)" : "Kopieren";
+    $("dlg-kopieren").showModal();
+  }
+
+  // ---------- Lokaler Speicher (Vermögen + Pikett) ----------
+
+  const SPEICHER_VM = "finanzDashboard.vermoegenLokal.v1";
+  function speichereVmLokal() {
+    if (!speicherSchreiben(SPEICHER_VM, zustand.vmLokal)) {
+      melde("Achtung: Die Erfassung konnte auf diesem Gerät nicht gespeichert werden (privates Surfen?). Bitte jetzt «Für Excel kopieren» nutzen.", true);
+    }
+  }
+
+  // Nach jeder Änderung: alles neu rechnen (Pikett zählt als Einnahme)
+  function nachVermoegenAenderung() {
+    if (!zustand.quelle) zustand.quelle = { beispiel: false, geladenAm: new Date().toISOString() };
+    setzeBuchungen(zustand.buchungen, !zustand.monat);
+  }
+
+  // Pikett-Erfassungen als Einnahme (wenn das Sheet für den Monat nicht schon Pikett enthält)
+  function pikettBuchungen(buchungen) {
+    if (zustand.quelle?.beispiel) return [];
+    return zustand.vmLokal.pikett.filter(p => p.betrag > 0 && !buchungen.some(b =>
+      b.einnahme && /pikett/i.test(`${b.kategorieDatei} ${b.beschreibung}`) && b.datum.slice(0, 7) === p.datum.slice(0, 7)))
+      .map(p => ({
+        datum: p.datum, beschreibung: "Pikett-Entschädigung", kategorieDatei: "Pikett", zahlungsmittelDatei: "",
+        notiz: `${p.anzahl ?? "?"} Dienste${p.aufKK ? " · auf Kreditkarte überwiesen" : ""}`,
+        konto: "Privat", einnahme: p.betrag, ausgabe: 0, saldo: null, quelle: "pikett", nr: 1e6,
+      }));
+  }
+
+  // ---------- Ansicht wechseln ----------
+
+  function zeigeAnsicht(name) {
+    zustand.ansicht = name;
+    $("ansicht-uebersicht").hidden = name !== "uebersicht";
+    $("ansicht-vermoegen").hidden = name !== "vermoegen";
+    $("monatswahl").hidden = name !== "uebersicht";
+    setzeUmschalter("ansicht", "data-ansicht", name);
+    try { sessionStorage.setItem("finanzDashboard.ansicht", name); } catch { /* egal */ }
+    if (name === "vermoegen") vermoegenAnsicht(); else zeichneDiagramme();
+    window.scrollTo({ top: 0 });
   }
 
   function zahlungsmittel() {
@@ -1081,14 +1401,61 @@
     warnungsliste();
   });
 
+  for (const b of document.querySelectorAll("[data-ansicht]")) b.addEventListener("click", () => zeigeAnsicht(b.dataset.ansicht));
+  document.addEventListener("click", e => {
+    if (e.target.closest("[data-zu-vermoegen]")) zeigeAnsicht("vermoegen");
+    const zu = e.target.closest("[data-schliessen]");
+    if (zu) zu.closest("dialog").close();
+    const kop = e.target.closest("[data-kopiere]");
+    if (kop) {
+      const feld = $(kop.dataset.kopiere);
+      inZwischenablage(feld.value, feld).then(ok => {
+        kop.textContent = ok ? "Kopiert ✓" : "Bitte Text markieren und kopieren";
+        if (ok && zustand.kopierListe) {
+          markiereKopiert(kop.dataset.kopiere === "kop-pikett" ? zustand.kopierListe.pikett : zustand.kopierListe.eintraege);
+        }
+      });
+    }
+  });
+  $("v-erfassen").addEventListener("click", oeffneErfassung);
+  $("v-import").addEventListener("click", () => {
+    if (zustand.quelle?.beispiel) { melde("Bei den Beispieldaten kann nichts eingefügt werden.", true); return; } $("imp-meldung").hidden = true; $("dlg-import").showModal(); });
+  $("v-kopieren-alle").addEventListener("click", () => {
+    const o = offeneErfassungen();
+    if (o.eintraege.length || o.pikett.length) {
+      zeigeKopieren(o.eintraege, o.pikett, `${o.eintraege.length} Vermögenswerte${o.pikett.length ? ` und ${o.pikett.length}× Pikett` : ""} sind noch nicht im Excel.`);
+      return;
+    }
+    const lokal = [...zustand.vmLokal.eintraege].sort((a, b) => a.datum.localeCompare(b.datum));
+    zeigeKopieren(lokal, [...zustand.vmLokal.pikett].sort((a, b) => a.datum.localeCompare(b.datum)),
+      lokal.length ? `Alles ist schon kopiert. Hier nochmals alle ${lokal.length} in der App erfassten Werte.` : "Noch keine Werte in der App erfasst.");
+  });
+  $("form-erfassung").addEventListener("submit", e => { e.preventDefault(); speichereErfassung(); });
+  $("form-import").addEventListener("submit", e => { e.preventDefault(); importiereText(); });
+  $("erf-konto-neu").addEventListener("click", () => {
+    const konto = (prompt("Name des Kontos / der Anlage:") || "").trim();
+    if (!konto) return;
+    const art = window.Analyse.vermoegenEintrag({ datum: "2000-01-01", konto, art: prompt("Art: Konto, Rücklage, Vorsorge, Investment, Schulden oder Kinder", "Konto") || "Konto", stand: 0 }).art;
+    if (!zustand.vmLokal.konten.some(k => k.konto === konto)) { zustand.vmLokal.konten.push({ konto, art }); speichereVmLokal(); }
+    $("erf-liste").querySelector(".klein-hinweis")?.remove();
+    $("erf-liste").insertAdjacentHTML("beforeend", erfassungZeile({ konto, art }));
+  });
+  $("start-vermoegen").addEventListener("click", () => {
+    zustand.quelle = { beispiel: false, geladenAm: new Date().toISOString() };
+    setzeBuchungen([], true);
+    zeigeAnsicht("vermoegen");
+  });
+
   $("details").addEventListener("toggle", () => { if ($("details").open && zustand.daten) zeichneDiagramme(); });
 
   $("suche").addEventListener("input", buchungsTabelle);
   for (const id of ["e-kat", "e-spar", "e-gross", "e-umb", "e-regeln", "e-ignorieren", "e-ruecklagen", "e-cler-saldo", "e-cler-ein"]) $(id).addEventListener("change", einstellungAendern);
 
   $("loeschen").addEventListener("click", () => {
-    if (!confirm("Gespeicherte Finanzdaten von diesem Gerät löschen?\n\nDeine Excel-Datei selbst bleibt unverändert.")) return;
+    if (!confirm("Gespeicherte Finanzdaten von diesem Gerät löschen – auch die hier erfassten Vermögenswerte und Pikett?\n\nTipp: vorher «Für Excel kopieren» nutzen. Deine Excel-Datei selbst bleibt unverändert.")) return;
     speicherLoeschen(SPEICHER_DATEN);
+    speicherLoeschen(SPEICHER_VM);
+    zustand.vmLokal = { eintraege: [], pikett: [], konten: [] };
     zustand.daten = null; zustand.quelle = null; zustand.buchungen = []; zustand.fixkosten = []; zustand.budgetsKonto = {}; zustand.kennzahlen = null; zustand.vermoegen = [];
     for (const id of Object.keys(diagramme)) { diagramme[id].destroy(); delete diagramme[id]; }
     $("dashboard").hidden = true;
@@ -1132,6 +1499,7 @@
   // ---------- Start ----------
 
   const gespeichert = speicherLesen(SPEICHER_DATEN);
+  const nurVermoegen = !gespeichert && (zustand.vmLokal.eintraege.length || zustand.vmLokal.pikett.length);
   if (gespeichert && Array.isArray(gespeichert.buchungen) &&
       (gespeichert.buchungen.length || (gespeichert.fixkosten || []).length || (gespeichert.vermoegen || []).length)) {
     zustand.quelle = { beispiel: false, geladenAm: gespeichert.geladenAm || gespeichert.quelle?.geladenAm };
@@ -1140,6 +1508,14 @@
     zustand.kennzahlen = gespeichert.kennzahlen || null;
     zustand.vermoegen = gespeichert.vermoegen || [];
     setzeBuchungen(gespeichert.buchungen, true);
+  } else if (nurVermoegen) {
+    zustand.quelle = { beispiel: false, geladenAm: new Date().toISOString() };
+    setzeBuchungen([], true);
+  }
+  if (zustand.daten) {
+    let a = "uebersicht";
+    try { a = sessionStorage.getItem("finanzDashboard.ansicht") || a; } catch { /* egal */ }
+    zeigeAnsicht(a);
   }
 
   // Offline-Funktion (nur über https, z.B. GitHub Pages)

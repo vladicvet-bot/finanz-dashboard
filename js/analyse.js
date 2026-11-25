@@ -694,14 +694,22 @@
       liste.push({
         datum, konto, art,
         stand: art === "Schulden" ? -Math.abs(stand) : stand,
-        eingezahlt: e != null ? Math.abs(e) : null,
+        eingezahlt: e != null && (art === "Vorsorge" || art === "Investment") ? Math.abs(e) : null,
+        notiz: s.notiz !== undefined ? text(z[s.notiz]) : "",
       });
     }
     return liste;
   }
 
-  // Pro Monat: letzter bekannter Stand jedes Kontos (fehlende Monate übernehmen den Vormonat)
+  /*
+   * Pro Monat der letzte bekannte Stand jedes Kontos.
+   * Fehlt ein Konto in einem Monat, wird für das TOTAL der letzte bekannte Stand
+   * verwendet – gespeichert wird nichts, und die Anzeige markiert diese Konten
+   * als «übernommen».
+   * total = Summe aller Stände (Schulden negativ, inkl. Kinder)
+   */
   function vermoegenBerechnen(eintraege) {
+    eintraege = (eintraege || []).filter(e => e && e.datum && e.konto && e.stand != null && isFinite(e.stand));
     if (!eintraege.length) return { monate: [], proMonat: {} };
     const sortiert = [...eintraege].sort((a, b) => a.datum < b.datum ? -1 : a.datum > b.datum ? 1 : 0);
     const erster = monatVon(sortiert[0].datum);
@@ -710,7 +718,7 @@
     for (let m = erster; monate.length < 600; m = naechsterMonat(m)) { monate.push(m); if (m === letzter) break; }
     const stand = new Map();
     const proMonat = {};
-    let i = 0;
+    let i = 0, vorher = null;
     for (const m of monate) {
       let datum = null;
       while (i < sortiert.length && monatVon(sortiert[i].datum) === m) {
@@ -718,17 +726,75 @@
         datum = sortiert[i].datum;
         i++;
       }
-      const konten = [...stand.values()];
+      const konten = [...stand.values()].map(k => {
+        const v = vorher && vorher.konten.find(x => x.konto === k.konto);
+        return {
+          ...k,
+          uebernommen: monatVon(k.datum) !== m,
+          veraenderung: v ? k.stand - v.stand : null,
+          gewinn: (k.art === "Vorsorge" || k.art === "Investment") && k.eingezahlt ? k.stand - k.eingezahlt : null,
+        };
+      });
       const nachArt = {};
       for (const k of konten) nachArt[k.art] = (nachArt[k.art] || 0) + k.stand;
-      proMonat[m] = {
+      const total = konten.reduce((s, k) => s + k.stand, 0);
+      // Veränderung nur über Konten, die es auch im Vormonat gab (neue Konten verfälschen sonst)
+      const vergleichbar = konten.filter(k => k.veraenderung != null);
+      const neueKonten = vorher ? konten.filter(k => k.veraenderung == null) : [];
+      proMonat[m] = vorher = {
+        veraenderung: vergleichbar.length ? vergleichbar.reduce((s, k) => s + k.veraenderung, 0) : null,
+        neueKonten: neueKonten.length,
+        neuSumme: neueKonten.reduce((s, k) => s + k.stand, 0),
         monat: m, stichtag: datum, konten,
-        netto: konten.filter(k => k.art !== "Kinder").reduce((s, k) => s + k.stand, 0),
+        total,
+        netto: total,                         // (früherer Name, = total)
         kinder: nachArt.Kinder || 0,
+        ohneKinder: total - (nachArt.Kinder || 0),
         nachArt,
+        uebernommen: konten.filter(k => k.uebernommen).length,
       };
     }
     return { monate, proMonat };
+  }
+
+  // Schlüssel für «gleiche Erfassung»: Stichtag + Konto
+  const vmSchluessel = e => `${e.datum}|${String(e.konto).trim().toLowerCase()}`;
+
+  // Sheet- und lokale Erfassungen zusammenführen, ohne Doppelte (das Sheet hat Vorrang)
+  function vermoegenZusammenfuehren(ausSheet, lokal) {
+    const gesehen = new Set((ausSheet || []).map(vmSchluessel));
+    return (ausSheet || []).concat((lokal || []).filter(e => !gesehen.has(vmSchluessel(e))));
+  }
+
+  // Eine Erfassung normalisieren (Regeln: Schulden negativ, «Eingezahlt» nur Vorsorge/Investment)
+  function vermoegenEintrag(roh) {
+    const art = normArt(roh.art);
+    let stand = typeof roh.stand === "number" ? roh.stand : zuBetrag(roh.stand);
+    if (stand == null || !isFinite(stand)) return null;
+    if (art === "Schulden") stand = -Math.abs(stand);
+    let eingezahlt = roh.eingezahlt === "" || roh.eingezahlt == null ? null
+      : typeof roh.eingezahlt === "number" ? roh.eingezahlt : zuBetrag(roh.eingezahlt);
+    if (!(art === "Vorsorge" || art === "Investment")) eingezahlt = null;
+    return {
+      datum: zuDatum(roh.datum) || roh.datum, konto: String(roh.konto || "").trim(), art,
+      stand: Math.round(stand * 100) / 100,
+      eingezahlt: eingezahlt != null && isFinite(eingezahlt) ? Math.abs(eingezahlt) : null,
+      notiz: String(roh.notiz || "").trim(),
+    };
+  }
+
+  // Eingefügte Tabelle (Tab, Semikolon) -> Einträge
+  function vermoegenAusText(text) {
+    const ergebnis = { eintraege: [], fehler: [] };
+    String(text || "").split(/\r?\n/).forEach((zeile, n) => {
+      if (!zeile.trim()) return;
+      const t = zeile.includes("\t") ? zeile.split("\t") : zeile.split(";");
+      const datum = zuDatum(t[0]);
+      if (!datum) { if (n > 0 || !/stichtag|datum/i.test(zeile)) ergebnis.fehler.push(n + 1); return; }
+      const e = vermoegenEintrag({ datum, konto: t[1], art: t[2], stand: t[3], eingezahlt: t[4], notiz: t.slice(5).join(" ").trim() });
+      if (e && e.konto) ergebnis.eintraege.push(e); else ergebnis.fehler.push(n + 1);
+    });
+    return ergebnis;
   }
 
   /*
@@ -904,8 +970,10 @@
   window.Analyse = {
     buchungenAusTabelle, ausArbeitsmappe, zuordnen, berechne, zeitraum, durchschnittVorher, warnungen,
     fixBuchungen, fixUebersicht, faelligkeiten, vermoegenBerechnen, ARTEN,
+    vermoegenZusammenfuehren, vermoegenEintrag, vermoegenAusText, vmSchluessel,
     nachHauptgruppe, HAUPTGRUPPEN_NAMEN, clerBedarfProMonat, clerPrognose, monatVon, naechsterMonat,
     STANDARD_REGELN,
     _test: { zuDatum, zuBetrag, normName },
+    zuDatum, zuBetrag,
   };
 })();
